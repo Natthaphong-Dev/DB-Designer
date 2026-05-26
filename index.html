@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DB Designer — Visual Database Design Tool</title>
+  <meta name="description" content="ออกแบบฐานข้อมูลด้วย Visual ERD Editor พร้อม import/export SQL รองรับ MySQL, PostgreSQL, SQLite" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- CodeMirror 5 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/sql/sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/addon/hint/sql-hint.min.js"></script>
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════ TOOLBAR ═══════════════════════ -->
+  <header id="toolbar">
+    <div id="tb-brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect x="2" y="2" width="24" height="24" rx="6" fill="url(#brandGrad)"/>
+        <rect x="6" y="8" width="16" height="3" rx="1.5" fill="white" opacity="0.9"/>
+        <rect x="6" y="13" width="16" height="1.5" rx="0.75" fill="white" opacity="0.5"/>
+        <rect x="6" y="16.5" width="10" height="1.5" rx="0.75" fill="white" opacity="0.5"/>
+        <defs>
+          <linearGradient id="brandGrad" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#6366f1"/>
+            <stop offset="1" stop-color="#8b5cf6"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span id="tb-brand-name">DB Designer</span>
+    </div>
+
+    <div id="tb-actions">
+      <button class="tb-btn" id="btn-new" title="New Diagram (Ctrl+N)">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 2h6l3 3v7H2V2z" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M8 2v3h3" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+        New
+      </button>
+      <button class="tb-btn" id="btn-save" title="Save Diagram (Ctrl+S)">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 2C1 1.44772 1.44772 1 2 1H9L13 5V12C13 12.5523 12.5523 13 12 13H2C1.44772 13 1 12.5523 1 12V2Z" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M9 13V8H4V13M3 1V4H8" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+        Save
+      </button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" id="btn-undo" title="Undo (Ctrl+Z)">↩</button>
+      <button class="tb-btn" id="btn-redo" title="Redo (Ctrl+Y)">↪</button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" id="btn-import-sql" title="Import SQL file or paste">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v8M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 10v2h12v-2" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        Import SQL
+      </button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn tb-btn-accent" id="btn-export-sql" title="Export as SQL DDL">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 9V1M3 5l4-4 4 4" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 10v2h12v-2" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        Export SQL
+      </button>
+      <button class="tb-btn" id="btn-export-png" title="Export as PNG image">🖼 PNG</button>
+      <button class="tb-btn" id="btn-export-json" title="Export as JSON">{ } JSON</button>
+    </div>
+
+    <div id="tb-zoom">
+      <button class="tb-btn tb-icon" id="btn-zoom-out" title="Zoom Out">−</button>
+      <span id="zoom-display">100%</span>
+      <button class="tb-btn tb-icon" id="btn-zoom-in" title="Zoom In">+</button>
+      <button class="tb-btn tb-icon" id="btn-zoom-fit" title="Fit to Screen">⊡</button>
+    </div>
+
+    <!-- Panel toggles -->
+    <div id="tb-panel-toggles">
+      <button class="tb-btn tb-toggle active" id="btn-toggle-sql" title="Toggle SQL Editor panel">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="0" y="0" width="4" height="12" rx="1" fill="currentColor" opacity="0.4"/><path d="M6 3l3 3-3 3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+        SQL Editor
+      </button>
+      <button class="tb-btn tb-toggle active" id="btn-toggle-shapes" title="Toggle Shapes panel">
+        Shapes
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="8" y="0" width="4" height="12" rx="1" fill="currentColor" opacity="0.4"/><path d="M6 3l-3 3 3 3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════ APP LAYOUT ═══════════════════════ -->
+  <div id="app">
+
+    <!-- ─── LEFT PANEL: SQL EDITOR ─── -->
+    <aside id="left-panel">
+      <div class="panel-hd" id="sql-panel-header">
+        <span class="panel-title">
+          <svg width="13" height="13" viewBox="0 0 13 13"><rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M4 4.5l2.5 2-2.5 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M7.5 8.5h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          SQL Editor
+        </span>
+        <div class="panel-hd-right">
+          <select id="sql-dialect" title="SQL Dialect">
+            <option value="mysql">MySQL</option>
+            <option value="postgresql">PostgreSQL</option>
+            <option value="sqlite">SQLite</option>
+          </select>
+          <button class="btn-icon" id="btn-clear-sql" title="Clear editor">✕</button>
+        </div>
+      </div>
+
+      <div id="sql-editor-wrap">
+        <textarea id="sql-editor" placeholder="-- Paste or type SQL DDL here"></textarea>
+      </div>
+
+      <div id="sql-actions">
+        <button class="btn-action btn-parse" id="btn-parse-sql">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          Parse to Canvas
+        </button>
+        <button class="btn-action btn-gen" id="btn-gen-sql">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M10 6H2M6 10L2 6l4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          Generate SQL
+        </button>
+      </div>
+
+      <!-- Resize handle (right edge) -->
+      <div id="left-resize-handle" class="panel-resize-x"></div>
+    </aside>
+
+    <!-- ─── CENTER: CANVAS ─── -->
+    <main id="canvas-wrap">
+      <div id="canvas-viewport">
+        <!-- SVG Layer for connections -->
+        <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg" width="8000" height="8000">
+          <defs>
+            <pattern id="dot-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+              <circle cx="12" cy="12" r="1" fill="rgba(99,102,241,0.2)"/>
+            </pattern>
+          </defs>
+          <rect width="8000" height="8000" fill="url(#dot-grid)" id="svg-bg"/>
+          <g id="connections-group"></g>
+          <g id="preview-connection-group"></g>
+        </svg>
+        <!-- Table nodes injected here by JS -->
+      </div>
+
+      <!-- Empty state hint -->
+      <div id="empty-hint">
+        <div class="empty-icon">🗃️</div>
+        <h2 class="empty-title">Canvas is Empty</h2>
+        <p class="empty-desc">
+          Drag a <strong>Table</strong> shape from the right panel<br/>
+          or paste SQL and click <strong>Parse to Canvas</strong>
+        </p>
+      </div>
+
+      <!-- Connection mode banner -->
+      <div id="connect-banner" class="hidden">
+        <span id="connect-step-text">Click source table…</span>
+        <button id="btn-cancel-connect" class="btn-cancel-conn">Cancel</button>
+      </div>
+
+      <!-- Zoom controls overlay -->
+      <div id="canvas-controls">
+        <button class="canvas-ctrl-btn" id="cc-zoom-in" title="Zoom In">+</button>
+        <button class="canvas-ctrl-btn" id="cc-zoom-out" title="Zoom Out">−</button>
+        <button class="canvas-ctrl-btn" id="cc-fit" title="Fit to Screen">⊡</button>
+        <div style="display: flex; gap: 4px;">
+          <button class="canvas-ctrl-btn" id="btn-trace-fk" title="Trace incoming Foreign Keys" style="width: auto; padding: 0 10px; font-size: 11px; white-space: nowrap; border-color: rgba(239,68,68,0.3);" >
+            🔴 Trace FK
+          </button>
+          <button class="canvas-ctrl-btn" id="cc-reset" title="Reset View">↺</button>
+        </div>
+      </div>
+    </main>
+ 
+    <!-- ─── RIGHT PANEL ─── -->
+    <aside id="right-panel">
+
+      <!-- Resize handle (left edge) -->
+      <div id="right-resize-handle" class="panel-resize-x" style="left:-3px;right:auto;"></div>
+
+      <!-- Toolbox -->
+      <div id="toolbox">
+        <div class="panel-hd">
+          <span class="panel-title">
+            <svg width="13" height="13" viewBox="0 0 13 13"><rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2" fill="none"/><rect x="3" y="4" width="7" height="1.5" rx="0.75" fill="currentColor"/><rect x="3" y="7" width="4" height="1.5" rx="0.75" fill="currentColor"/></svg>
+            Shapes
+          </span>
+        </div>
+
+        <div id="shapes-grid">
+          <div class="shape-card" draggable="true" data-shape="table" id="drag-table">
+            <div class="sp-box">
+              <div class="sp-header" style="background: linear-gradient(135deg,#6366f1,#4f46e5)"></div>
+              <div class="sp-row"></div>
+              <div class="sp-row" style="width:60%"></div>
+            </div>
+            <span>Table</span>
+          </div>
+          <div class="shape-card" draggable="true" data-shape="view" id="drag-view">
+            <div class="sp-box">
+              <div class="sp-header" style="background: linear-gradient(135deg,#10b981,#059669)"></div>
+              <div class="sp-row"></div>
+              <div class="sp-row" style="width:70%"></div>
+            </div>
+            <span>View</span>
+          </div>
+          <div class="shape-card" draggable="true" data-shape="note" id="drag-note">
+            <div class="sp-box sp-note">
+              <div class="sp-note-line"></div>
+              <div class="sp-note-line" style="width:80%"></div>
+              <div class="sp-note-line" style="width:60%"></div>
+            </div>
+            <span>Note</span>
+          </div>
+        </div>
+
+        <div class="section-label">Relationships</div>
+        <div id="rel-types">
+          <button class="rel-btn active" data-rel="one-to-many" id="rel-btn-1n">
+            <span class="rel-notation">1:N</span>
+            <span>One to Many</span>
+          </button>
+          <button class="rel-btn" data-rel="one-to-one" id="rel-btn-11">
+            <span class="rel-notation">1:1</span>
+            <span>One to One</span>
+          </button>
+          <button class="rel-btn" data-rel="many-to-many" id="rel-btn-nm">
+            <span class="rel-notation">N:M</span>
+            <span>Many to Many</span>
+          </button>
+        </div>
+
+        <button id="btn-connect-mode" class="btn-connect-mode">
+          <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="3" cy="7" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="11" cy="7" r="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M5 7h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          Connect Tables
+        </button>
+      </div>
+
+      <!-- Resize handle between Toolbox and Properties -->
+      <div id="toolbox-divider" class="panel-resize-y"></div>
+
+      <!-- Properties Panel -->
+      <div id="properties-panel">
+        <div class="panel-hd">
+          <span class="panel-title">
+            <svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M6.5 4v3M6.5 9v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Properties
+          </span>
+        </div>
+        <div id="props-content">
+          <div class="props-empty">
+            <svg width="32" height="32" viewBox="0 0 32 32" opacity="0.3"><circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M16 10v7M16 20v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <p>Select a table or connection</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resize handle between Properties and Files -->
+      <div id="rp-divider" class="panel-resize-y"></div>
+
+      <!-- File Explorer -->
+      <div id="file-explorer">
+        <div class="panel-hd">
+          <span class="panel-title">
+            <svg width="13" height="13" viewBox="0 0 13 13"><path d="M1 3h4l1.5 1.5H12V11H1V3z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+            Files
+          </span>
+          <div class="panel-hd-right">
+            <button class="btn-icon" id="btn-new-folder" title="New Folder">📁</button>
+            <button class="btn-icon" id="btn-new-file" title="New File">📄</button>
+          </div>
+        </div>
+        <div id="file-tree">
+          <!-- Populated by file-manager JS -->
+        </div>
+      </div>
+
+    </aside>
+  </div><!-- #app -->
+
+  <!-- ═══════════════════════ MODAL ═══════════════════════ -->
+  <div id="modal-overlay">
+    <div id="modal-box">
+      <div id="modal-hd">
+        <span id="modal-title">Dialog</span>
+        <button id="modal-close" class="btn-icon">✕</button>
+      </div>
+      <div id="modal-body"></div>
+      <div id="modal-ft">
+        <button class="btn-action btn-cancel" id="modal-cancel">Cancel</button>
+        <button class="btn-action btn-ok" id="modal-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ CONTEXT MENU ═══════════════════════ -->
+  <div id="ctx-menu">
+    <ul id="ctx-menu-list"></ul>
+  </div>
+
+  <!-- ═══════════════════════ TOAST ═══════════════════════ -->
+  <div id="toast-wrap"></div>
+
+  <!-- CDN Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- App Scripts (order matters) -->
+  <script src="js/utils.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/sql.js"></script>
+  <script src="js/files.js"></script>
+  <script src="js/canvas.js"></script>
+  <script src="js/main.js"></script>
+
+</body>
+</html>

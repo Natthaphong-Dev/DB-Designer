@@ -1,0 +1,17 @@
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Project-specific files you might not want to share
+*.dbdesign
+*.sql
+*.json
