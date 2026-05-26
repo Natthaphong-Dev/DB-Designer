@@ -418,36 +418,48 @@
       if (table.type === 'note') {
         const color = table.color || '#fef08a';
         el.style.setProperty('--note-bg', color);
-        el.innerHTML = `
-          <div class="note-container" style="background: ${color}; width: 100%; height: 100%; min-height: 140px; border-radius: var(--r-lg); box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden;">
-            <!-- Top Drag Area & Title -->
-            <div class="note-header" style="display: flex; align-items: center; padding: 8px 12px; background: rgba(0,0,0,0.06); cursor: grab; user-select: none;">
-              <div style="flex:1; font-weight:600; font-size:13px; color:rgba(0,0,0,0.6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${Utils.esc(table.name || 'Note')}</div>
-              <div class="table-hd-actions" style="opacity:1;">
-                <button class="table-hd-btn" data-action="delete" title="Delete Note" style="color: rgba(0,0,0,0.5); background: transparent;">✕</button>
+        
+        const existingContainer = el.querySelector('.note-container');
+        if (!existingContainer) {
+          el.innerHTML = `
+            <div class="note-container" style="background: ${color}; width: 100%; height: 100%; min-height: 140px; border-radius: var(--r-lg); box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden;">
+              <!-- Top Drag Area & Title -->
+              <div class="note-header" style="display: flex; align-items: center; padding: 8px 12px; background: rgba(0,0,0,0.06); cursor: grab; user-select: none;">
+                <div class="note-title" style="flex:1; font-weight:600; font-size:13px; color:rgba(0,0,0,0.6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${Utils.esc(table.name || 'Note')}</div>
+                <div class="table-hd-actions" style="opacity:1;">
+                  <button class="table-hd-btn" data-action="delete" title="Delete Note" style="color: rgba(0,0,0,0.5); background: transparent;">✕</button>
+                </div>
+              </div>
+              <!-- Text Area -->
+              <div style="flex:1; padding: 10px;">
+                <textarea class="note-textarea" spellcheck="false" placeholder="Write your note..." style="width:100%; height:100%; resize:none; background:transparent; border:none; color:#1f2937; font-family:var(--font); outline:none; font-size:14px; line-height:1.5;">${Utils.esc(table.text || '')}</textarea>
               </div>
             </div>
-            <!-- Text Area -->
-            <div style="flex:1; padding: 10px;">
-              <textarea class="note-textarea" spellcheck="false" placeholder="Write your note..." style="width:100%; height:100%; resize:none; background:transparent; border:none; color:#1f2937; font-family:var(--font); outline:none; font-size:14px; line-height:1.5;">${Utils.esc(table.text || '')}</textarea>
-            </div>
-          </div>
-        `;
-        
-        el.querySelector('.note-textarea').addEventListener('input', (e) => {
-          table.text = e.target.value;
-          AppState.isDirty = true;
-        });
+          `;
+          
+          el.querySelector('.note-textarea').addEventListener('input', (e) => {
+            table.text = e.target.value;
+            AppState.isDirty = true;
+          });
 
-        el.querySelectorAll('[data-action="delete"]').forEach(btn => {
-          btn.addEventListener('click', (e) => {
+          el.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
             e.stopPropagation();
             App.confirmDeleteTable(table.id);
           });
-        });
-        
-        // Prevent double click on note from showing rename dialog
-        el.querySelector('.note-textarea').addEventListener('dblclick', (e) => e.stopPropagation());
+          
+          // Prevent double click on note from showing rename dialog
+          el.querySelector('.note-textarea').addEventListener('dblclick', (e) => e.stopPropagation());
+        } else {
+          // Update existing DOM to preserve focus and selection
+          existingContainer.style.background = color;
+          const titleEl = el.querySelector('.note-title');
+          if (titleEl) titleEl.textContent = table.name || 'Note';
+          
+          const ta = el.querySelector('.note-textarea');
+          if (ta && document.activeElement !== ta) {
+            ta.value = table.text || '';
+          }
+        }
       } else {
         // Compute header color gradient
         const color = table.color || '#6366f1';

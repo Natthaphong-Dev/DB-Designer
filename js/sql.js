@@ -44,6 +44,22 @@
         delete parsed._fks;
       }
 
+      /* ── CREATE VIEW statements ── */
+      const cvRegex = /CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+[`"\[]?(\w+)[`"\]]?/gi;
+      while ((m = cvRegex.exec(clean)) !== null) {
+        const viewName = m[1];
+        const idx = tables.length;
+        tables.push({
+          id: Utils.uuid(),
+          name: viewName,
+          type: 'view',
+          columns: [],
+          color: '#10b981', // Green for view
+          x: 3800 + (idx % 3) * 290,
+          y: 3400 + Math.floor(idx / 3) * 260
+        });
+      }
+
       /* ── ALTER TABLE … ADD FOREIGN KEY ── */
       const alterFkRegex = /ALTER\s+TABLE\s+[`"[]?(\w+)[`"\]]?\s+ADD\s+(?:CONSTRAINT\s+[`"[]?\w+[`"\]]?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"[]?(\w+)[`"\]]?\s*\(([^)]+)\)/gi;
       while ((m = alterFkRegex.exec(clean)) !== null) {
