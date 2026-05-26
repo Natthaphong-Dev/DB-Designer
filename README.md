@@ -1,3 +1,4 @@
+<img width="1920" height="1200" alt="db-designer " src="https://github.com/user-attachments/assets/2f47db47-689c-4408-a399-cfee133dd696" />
 <div align="center">
   
   # 🗄️ DB-Designer
@@ -17,6 +18,7 @@
 </div>
 
 ---
+<img width="1920" height="1200" alt="db-designer " src="https://github.com/user-attachments/assets/3952809d-1183-4928-bff4-eaef733bf9bf" />
 
 ## ✨ Key Features
 
