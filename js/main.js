@@ -1131,6 +1131,10 @@ CREATE TABLE order_items (
       if (table.type === 'note') {
         container.innerHTML = `
           <div class="prop-group">
+            <label class="prop-label">Note Title</label>
+            <input class="prop-input" id="prop-tname" value="${Utils.esc(table.name)}"/>
+          </div>
+          <div class="prop-group">
             <label class="prop-label">Background Color</label>
             <div class="color-full-wrap">
               <input type="color" id="prop-color-native" value="${table.color || '#f59e0b'}" title="Pick any color"/>
@@ -1146,6 +1150,14 @@ CREATE TABLE order_items (
           <button class="btn-action" style="background:var(--c-danger);border-color:var(--c-danger);margin-top:16px;width:100%;" id="btn-prop-del">Delete Note</button>
         `;
         
+        const nameInp = document.getElementById('prop-tname');
+        if (nameInp) {
+          nameInp.addEventListener('change', (e) => {
+            const name = e.target.value.trim();
+            if (name) { AppState.updateTable(tableId, { name }); Canvas.renderAll(); }
+          });
+        }
+
         const textInp = document.getElementById('prop-note-text');
         if (textInp) {
           textInp.addEventListener('input', Utils.debounce((e) => {

@@ -341,7 +341,7 @@
 
       // Header or Note drag
       el.addEventListener('mousedown', (e) => {
-        const hd = e.target.closest('.table-header') || e.target.closest('.note-container');
+        const hd = e.target.closest('.table-header') || e.target.closest('.note-header');
         if (!hd) return;
         if (e.target.closest('.table-hd-actions, [contenteditable], textarea, input, button, select')) return;
         e.preventDefault();
@@ -401,12 +401,20 @@
 
       if (table.type === 'note') {
         const color = table.color || '#fef08a';
+        el.style.setProperty('--note-bg', color);
         el.innerHTML = `
-          <div class="note-container" style="background: ${color}; width: 100%; height: 100%; min-height: 120px; padding: 10px; border-radius: var(--r); box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column;">
-            <div class="table-hd-actions" style="position: absolute; top: 5px; right: 5px;">
-              <button class="table-hd-btn" data-action="delete" title="Delete Note" style="color: rgba(0,0,0,0.5);">✕</button>
+          <div class="note-container" style="background: ${color}; width: 100%; height: 100%; min-height: 140px; border-radius: var(--r-lg); box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden;">
+            <!-- Top Drag Area & Title -->
+            <div class="note-header" style="display: flex; align-items: center; padding: 8px 12px; background: rgba(0,0,0,0.06); cursor: grab; user-select: none;">
+              <div style="flex:1; font-weight:600; font-size:13px; color:rgba(0,0,0,0.6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${Utils.esc(table.name || 'Note')}</div>
+              <div class="table-hd-actions" style="opacity:1;">
+                <button class="table-hd-btn" data-action="delete" title="Delete Note" style="color: rgba(0,0,0,0.5); background: transparent;">✕</button>
+              </div>
             </div>
-            <textarea class="note-textarea" spellcheck="false" placeholder="Double-click to edit..." style="width:100%; flex:1; resize:none; background:transparent; border:none; color:#1f2937; font-family:var(--font); outline:none; font-size:14px; line-height:1.5;">${Utils.esc(table.text || '')}</textarea>
+            <!-- Text Area -->
+            <div style="flex:1; padding: 10px;">
+              <textarea class="note-textarea" spellcheck="false" placeholder="Write your note..." style="width:100%; height:100%; resize:none; background:transparent; border:none; color:#1f2937; font-family:var(--font); outline:none; font-size:14px; line-height:1.5;">${Utils.esc(table.text || '')}</textarea>
+            </div>
           </div>
         `;
         
