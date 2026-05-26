@@ -339,6 +339,20 @@
       el.className = 'table-node';
       el.dataset.tableId = table.id;
 
+      // Observe resize
+      const ro = new ResizeObserver(() => {
+        const t = AppState.getTable(table.id);
+        if (t && el.offsetWidth > 0 && el.offsetHeight > 0) {
+          // Only update if actually changed
+          if (t.w !== el.offsetWidth || t.h !== el.offsetHeight) {
+            t.w = el.offsetWidth;
+            t.h = el.offsetHeight;
+            this._renderConnections();
+          }
+        }
+      });
+      ro.observe(el);
+
       // Header or Note drag
       el.addEventListener('mousedown', (e) => {
         const hd = e.target.closest('.table-header') || e.target.closest('.note-header');
@@ -397,6 +411,8 @@
     _updateTableEl(el, table) {
       el.style.left = table.x + 'px';
       el.style.top  = table.y + 'px';
+      if (table.w) el.style.width = table.w + 'px';
+      if (table.h) el.style.height = table.h + 'px';
       el.classList.toggle('selected', AppState.selected?.id === table.id);
 
       if (table.type === 'note') {
@@ -774,8 +790,9 @@
       if (!fromTable) return;
 
       const fromEl = this.viewport.querySelector(`[data-table-id="${fromTableId}"]`);
+      const fromW = fromEl ? fromEl.offsetWidth : 240;
       const fromH = fromEl ? fromEl.offsetHeight : 80;
-      const fx = fromTable.x + TABLE_WIDTH;
+      const fx = fromTable.x + fromW;
       const fy = fromTable.y + fromH / 2;
 
       const pathData = this._bezierPath(fx, fy, 'right', toX, toY, 'none');
@@ -811,12 +828,14 @@
          
          const fromEl = this.viewport.querySelector(`[data-table-id="${conn.fromTableId}"]`);
          const toEl   = this.viewport.querySelector(`[data-table-id="${conn.toTableId}"]`);
+         const fromW = fromEl ? fromEl.offsetWidth : 240;
          const fromH = fromEl ? fromEl.offsetHeight : 80;
+         const toW   = toEl   ? toEl.offsetWidth   : 240;
          const toH   = toEl   ? toEl.offsetHeight   : 80;
          
-         const fCX = ft.x + TABLE_WIDTH / 2;
+         const fCX = ft.x + fromW / 2;
          const fCY = ft.y + fromH / 2;
-         const tCX = tt.x + TABLE_WIDTH / 2;
+         const tCX = tt.x + toW / 2;
          const tCY = tt.y + toH / 2;
          const dx = tCX - fCX;
          const dy = tCY - fCY;
@@ -830,7 +849,7 @@
            toSide   = dy >= 0 ? 'top'    : 'bottom';
          }
          
-         const data = { conn, ft, tt, fromH, toH, fromSide, toSide };
+         const data = { conn, ft, tt, fromW, fromH, toW, toH, fromSide, toSide };
          connData.push(data);
          
          if (tableSides[ft.id]) tableSides[ft.id][fromSide].push(data);
@@ -846,27 +865,27 @@
          const tIdx = tList.indexOf(data);
          const tTotal = tList.length;
          
-         this._renderOneConnection(data.conn, data.ft, data.tt, data.fromH, data.toH, data.fromSide, data.toSide, fIdx, fTotal, tIdx, tTotal);
+         this._renderOneConnection(data.conn, data.ft, data.tt, data.fromW, data.fromH, data.toW, data.toH, data.fromSide, data.toSide, fIdx, fTotal, tIdx, tTotal);
       }
     },
 
-    _renderOneConnection(conn, ft, tt, fromH, toH, fromSide, toSide, fIdx, fTotal, tIdx, tTotal) {
+    _renderOneConnection(conn, ft, tt, fromW, fromH, toW, toH, fromSide, toSide, fIdx, fTotal, tIdx, tTotal) {
       const SPACING = 20;
       const fOffset = (fIdx - (fTotal - 1) / 2) * SPACING;
       const tOffset = (tIdx - (tTotal - 1) / 2) * SPACING;
       
       const pts = {
-        right:  { x: ft.x + TABLE_WIDTH, y: ft.y + fromH / 2 + fOffset },
+        right:  { x: ft.x + fromW, y: ft.y + fromH / 2 + fOffset },
         left:   { x: ft.x,               y: ft.y + fromH / 2 + fOffset },
-        bottom: { x: ft.x + TABLE_WIDTH / 2 + fOffset, y: ft.y + fromH },
-        top:    { x: ft.x + TABLE_WIDTH / 2 + fOffset, y: ft.y }
+        bottom: { x: ft.x + fromW / 2 + fOffset, y: ft.y + fromH },
+        top:    { x: ft.x + fromW / 2 + fOffset, y: ft.y }
       };
       
       const epts = {
         left:   { x: tt.x,               y: tt.y + toH / 2 + tOffset },
-        right:  { x: tt.x + TABLE_WIDTH, y: tt.y + toH / 2 + tOffset },
-        top:    { x: tt.x + TABLE_WIDTH / 2 + tOffset, y: tt.y },
-        bottom: { x: tt.x + TABLE_WIDTH / 2 + tOffset, y: tt.y + toH }
+        right:  { x: tt.x + toW, y: tt.y + toH / 2 + tOffset },
+        top:    { x: tt.x + toW / 2 + tOffset, y: tt.y },
+        bottom: { x: tt.x + toW / 2 + tOffset, y: tt.y + toH }
       };
 
       const fx = pts[fromSide].x;
