@@ -195,7 +195,205 @@
         }
       }
       if (cur.trim()) parts.push(cur);
-      return parts;
+    }
+  };
+
+  /* ═══════════════════ DJANGO PARSER ═══════════════════ */
+  const DjangoParser = {
+    _typeMap: {
+      'CharField': 'VARCHAR(255)',
+      'TextField': 'TEXT',
+      'IntegerField': 'INT',
+      'BigIntegerField': 'BIGINT',
+      'SmallIntegerField': 'SMALLINT',
+      'FloatField': 'FLOAT',
+      'DecimalField': 'DECIMAL',
+      'BooleanField': 'BOOLEAN',
+      'DateField': 'DATE',
+      'DateTimeField': 'DATETIME',
+      'TimeField': 'TIME',
+      'JSONField': 'JSON',
+      'BinaryField': 'BLOB',
+      'UUIDField': 'UUID',
+      'EmailField': 'VARCHAR(255)',
+      'AutoField': 'INT',
+      'BigAutoField': 'BIGINT'
+    },
+
+    parse(code) {
+      // Remove python comments
+      const clean = code.replace(/#.*$/gm, '').trim();
+      const tables = [];
+      const rawConns = [];
+
+      // Split code by top-level "class " to parse class by class
+      const classBlocks = clean.split(/^class\s+/m).filter(b => b.trim());
+
+      let idx = 0;
+      for (const block of classBlocks) {
+        // Match ModelName(models.Model):
+        const classMatch = block.match(/^(\w+)(?:\([^)]*\))?:/);
+        if (!classMatch) continue;
+        const className = classMatch[1];
+        
+        // Skip Meta or other non-models
+        if (className === 'Meta') continue;
+
+        const tableName = this._toTableName(className);
+        const parsed = this._parseModelBody(tableName, block);
+
+        const cols = 3;
+        tables.push(Object.assign(parsed, {
+          id: Utils.uuid(),
+          name: tableName,
+          type: 'table',
+          color: Utils.tableColors[idx % Utils.tableColors.length],
+          x: 3800 + (idx % cols) * 290,
+          y: 3400 + Math.floor(idx / cols) * 260
+        }));
+
+        rawConns.push(...parsed._fks.map(fk => ({
+          fromTableName: tableName,
+          fromColumn: fk.fromCol,
+          toTableName: this._toTableName(fk.toClass),
+          toColumn: 'id' // Default PK in Django is usually 'id'
+        })));
+
+        delete parsed._fks;
+        idx++;
+      }
+
+      // Resolve connections
+      const connections = rawConns.map(rc => {
+        const from = tables.find(t => t.name.toLowerCase() === rc.fromTableName.toLowerCase());
+        const to   = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
+        if (!from || !to) return null;
+        
+        const fkCol = from.columns.find(c => c.name === rc.fromColumn);
+        if (fkCol) fkCol.fk = true;
+        
+        return AppState.newConnection({
+          fromTableId: to.id,
+          fromColumn: rc.toColumn,
+          toTableId: from.id,
+          toColumn: rc.fromColumn,
+          type: 'one-to-many',
+          label: `fk_${rc.fromColumn}`
+        });
+      }).filter(Boolean);
+
+      return { tables, connections };
+    },
+
+    _toTableName(className) {
+      // PascalCase to snake_case and basic pluralization
+      let snake = className.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`).replace(/^_/, '');
+      if (!snake.endsWith('s')) {
+        if (snake.endsWith('y')) snake = snake.slice(0, -1) + 'ies';
+        else if (!snake.endsWith('ss')) snake += 's';
+      }
+      return snake;
+    },
+
+    _parseModelBody(tableName, body) {
+      const columns = [];
+      const fks = [];
+      const lines = body.split('\n');
+      
+      let hasPk = false;
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        // Skip methods, nested classes, and empty lines
+        if (!line || line.startsWith('def ') || line.startsWith('class ')) continue;
+
+        // Match: field_name = models.FieldType(...)
+        const fieldMatch = line.match(/^(\w+)\s*=\s*models\.(\w+)\((.*)\)/);
+        if (fieldMatch) {
+          const colName = fieldMatch[1];
+          const fieldType = fieldMatch[2];
+          const args = fieldMatch[3];
+
+          // Handle Foreign Keys
+          if (fieldType === 'ForeignKey' || fieldType === 'OneToOneField') {
+            const targetMatch = args.match(/^['"]?(\w+)['"]?/);
+            if (targetMatch) {
+              fks.push({
+                fromCol: colName,
+                toClass: targetMatch[1] // The related Model name
+              });
+              
+              const nn = !args.includes('null=True');
+              columns.push(AppState.newColumn({
+                name: colName,
+                type: 'INT',
+                pk: false,
+                nn: nn,
+                ai: false,
+                uq: fieldType === 'OneToOneField',
+                fk: true,
+                defaultVal: null
+              }));
+              continue;
+            }
+          }
+
+          // Regular Fields
+          let colType = this._typeMap[fieldType] || 'VARCHAR(255)';
+          
+          if (fieldType === 'CharField' || fieldType === 'EmailField') {
+            const m = args.match(/max_length\s*=\s*(\d+)/);
+            if (m) colType = `VARCHAR(${m[1]})`;
+          } else if (fieldType === 'DecimalField') {
+            const mdMatch = args.match(/max_digits\s*=\s*(\d+)/);
+            const dpMatch = args.match(/decimal_places\s*=\s*(\d+)/);
+            if (mdMatch && dpMatch) {
+              colType = `DECIMAL(${mdMatch[1]}, ${dpMatch[1]})`;
+            }
+          }
+
+          const pk = args.includes('primary_key=True');
+          const nn = !(args.includes('null=True') || args.includes('blank=True'));
+          const uq = args.includes('unique=True');
+          const ai = fieldType === 'AutoField' || fieldType === 'BigAutoField';
+
+          let defaultVal = null;
+          const defMatch = args.match(/default\s*=\s*([^,)]+)/);
+          if (defMatch) {
+            defaultVal = defMatch[1].trim();
+            if (defaultVal === 'timezone.now') defaultVal = 'CURRENT_TIMESTAMP';
+          }
+
+          if (pk) hasPk = true;
+
+          columns.push(AppState.newColumn({
+            name: colName,
+            type: colType,
+            pk,
+            nn: nn || pk,
+            ai,
+            uq,
+            fk: false,
+            defaultVal
+          }));
+        }
+      }
+
+      // Django automatically adds an 'id' primary key if none is specified
+      if (!hasPk) {
+        columns.unshift(AppState.newColumn({
+          name: 'id',
+          type: 'INT',
+          pk: true,
+          nn: true,
+          ai: true,
+          uq: false,
+          fk: false,
+          defaultVal: null
+        }));
+      }
+
+      return { columns, _fks: fks };
     }
   };
 
@@ -608,6 +806,7 @@
   };
 
   global.SqlParser = SqlParser;
+  global.DjangoParser = DjangoParser;
   global.SqlExporter = SqlExporter;
   global.DjangoExporter = DjangoExporter;
 })(window);

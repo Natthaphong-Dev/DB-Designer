@@ -802,12 +802,12 @@ CREATE TABLE order_items (
     /* ── Import SQL ── */
     showImportSqlDialog() {
       this.openModal('Import SQL', `
-        <p style="color:var(--c-text2);margin-bottom:12px;font-size:12.5px;">Paste SQL DDL (CREATE TABLE statements) to auto-generate the diagram.</p>
-        <textarea class="import-area" id="dlg-import-sql" placeholder="-- Paste CREATE TABLE statements here..."></textarea>
+        <p style="color:var(--c-text2);margin-bottom:12px;font-size:12.5px;">Paste SQL DDL or Django <code>models.py</code> to auto-generate the diagram.</p>
+        <textarea class="import-area" id="dlg-import-sql" placeholder="-- Paste CREATE TABLE or class Model..."></textarea>
         <div style="margin-top:10px;display:flex;align-items:center;gap:10px;">
           <label class="btn-action btn-gen" style="cursor:pointer;flex:0 0 auto;">
-            📂 Upload .sql
-            <input type="file" accept=".sql,.txt" id="dlg-import-file" style="display:none"/>
+            📂 Upload File
+            <input type="file" accept=".sql,.txt,.py" id="dlg-import-file" style="display:none"/>
           </label>
           <span style="font-size:11px;color:var(--c-text3)">or type above</span>
         </div>`,
@@ -842,8 +842,17 @@ CREATE TABLE order_items (
 
     parseSqlText(sql) {
       try {
-        const { tables, connections } = SqlParser.parse(sql);
-        if (tables.length === 0) { this.toast('No CREATE TABLE found in SQL', 'error'); return; }
+        const dialect = document.getElementById('sql-dialect')?.value || 'mysql';
+        const isDjango = dialect === 'django';
+        
+        const { tables, connections } = isDjango 
+          ? DjangoParser.parse(sql) 
+          : SqlParser.parse(sql);
+          
+        if (tables.length === 0) { 
+          this.toast(isDjango ? 'No Django Models found' : 'No CREATE TABLE found in SQL', 'error'); 
+          return; 
+        }
 
         const existingNames = new Set(AppState.tables.map(t => t.name.toLowerCase()));
         let added = 0, skipped = 0;
