@@ -17,6 +17,7 @@
 </div>
 
 ---
+<img width="1920" height="1200" alt="db-designer " src="https://github.com/user-attachments/assets/b019a6c1-566c-40de-998f-c9e7b6230967" />
 
 ## ✨ Key Features
 
