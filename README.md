@@ -22,13 +22,13 @@
 
 *   🖱️ **Interactive ER Diagrams**: Drag and drop Tables, Views, and Notes onto a dynamic canvas. Visually map Foreign Keys using standard Crow's Foot notation.
 *   💻 **Smart SQL Editor**: Powered by CodeMirror, featuring live syntax highlighting and context-aware auto-completion.
-*   🔄 **Dialect Support**: Seamlessly toggle between **MySQL**, **PostgreSQL**, and **SQLite**. Keyword suggestions automatically adapt to your chosen dialect.
+*   🔄 **Dialect Support**: Seamlessly toggle between **MySQL**, **PostgreSQL**, **SQLite**, and **🐍 Django Models**. Keyword suggestions automatically adapt to your chosen dialect.
 *   ⚡ **Real-Time Two-Way Sync**:
     *   **Visual to Code**: Map your schemas visually, and the DDL scripts generate instantly.
     *   **Code to Visual**: Paste your `CREATE TABLE` scripts into the editor, click "Parse to Canvas", and watch your ER Diagram build itself.
 *   📝 **Customization & Documentation**: Color-code tables for visual grouping. Use floating "Notes" with adjustable backgrounds to document logic directly on the canvas.
 *   💾 **Local Workspace**: Create folders and organize diagram files right in the browser. 100% powered by `localStorage`.
-*   📤 **Export Engine**: Export schemas as high-res PNG images, JSON backup files, or raw `.sql` files.
+*   📤 **Export Engine**: Export schemas as high-res PNG images, JSON backup files, raw `.sql` files, or even fully structured **Django `models.py`** files.
 
 ---
 

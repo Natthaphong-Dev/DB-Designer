@@ -87,7 +87,8 @@
       const dialectMap = {
         mysql: 'text/x-mysql',
         postgresql: 'text/x-pgsql',
-        sqlite: 'text/x-sqlite'
+        sqlite: 'text/x-sqlite',
+        django: 'text/x-python'
       };
 
       this._editor = CodeMirror.fromTextArea(ta, {
@@ -114,12 +115,42 @@
       }
 
       // Custom Hint with Snippets
-      const snippets = [
+      const sqlSnippets = [
         { text: "CREATE TABLE table_name (\n  id INT NOT NULL AUTO_INCREMENT,\n  name VARCHAR(100) NOT NULL,\n  PRIMARY KEY (id)\n);", displayText: "CREATE TABLE (Snippet)" },
         { text: "FOREIGN KEY (col_name) REFERENCES table_name(id)", displayText: "FOREIGN KEY (Snippet)" },
         { text: "PRIMARY KEY (id)", displayText: "PRIMARY KEY (Snippet)" },
         { text: "VARCHAR(255) NOT NULL", displayText: "VARCHAR (Snippet)" },
         { text: "INT NOT NULL AUTO_INCREMENT", displayText: "AUTO_INCREMENT (Snippet)" }
+      ];
+
+      const djangoSnippets = [
+        { text: "class ModelName(models.Model):\n    field_name = models.CharField(max_length=100)\n\n    def __str__(self):\n        return self.field_name", displayText: "🐍 class Model (Django Snippet)" },
+        { text: "models.CharField(max_length=100)", displayText: "🐍 CharField (Django)" },
+        { text: "models.TextField()", displayText: "🐍 TextField (Django)" },
+        { text: "models.IntegerField(default=0)", displayText: "🐍 IntegerField (Django)" },
+        { text: "models.BigIntegerField()", displayText: "🐍 BigIntegerField (Django)" },
+        { text: "models.FloatField()", displayText: "🐍 FloatField (Django)" },
+        { text: "models.DecimalField(\n        max_digits=10,\n        decimal_places=2\n    )", displayText: "🐍 DecimalField (Django)" },
+        { text: "models.BooleanField(default=True)", displayText: "🐍 BooleanField (Django)" },
+        { text: "models.DateTimeField(default=timezone.now)", displayText: "🐍 DateTimeField (Django)" },
+        { text: "models.DateTimeField(auto_now=True)", displayText: "🐍 DateTimeField auto_now (Django)" },
+        { text: "models.DateTimeField(auto_now_add=True)", displayText: "🐍 DateTimeField auto_now_add (Django)" },
+        { text: "models.DateField()", displayText: "🐍 DateField (Django)" },
+        { text: "models.TimeField()", displayText: "🐍 TimeField (Django)" },
+        { text: "models.EmailField(null=True, blank=True)", displayText: "🐍 EmailField (Django)" },
+        { text: "models.ImageField(\n        upload_to='images/',\n        null=True,\n        blank=True\n    )", displayText: "🐍 ImageField (Django)" },
+        { text: "models.FileField(\n        upload_to='files/',\n        null=True,\n        blank=True\n    )", displayText: "🐍 FileField (Django)" },
+        { text: "models.JSONField(default=list)", displayText: "🐍 JSONField (Django)" },
+        { text: "models.UUIDField()", displayText: "🐍 UUIDField (Django)" },
+        { text: "models.BinaryField()", displayText: "🐍 BinaryField (Django)" },
+        { text: "models.ForeignKey(\n        ModelName,\n        on_delete=models.CASCADE,\n        related_name='items'\n    )", displayText: "🐍 ForeignKey CASCADE (Django)" },
+        { text: "models.ForeignKey(\n        ModelName,\n        on_delete=models.SET_NULL,\n        null=True,\n        blank=True,\n        related_name='items'\n    )", displayText: "🐍 ForeignKey SET_NULL (Django)" },
+        { text: "models.OneToOneField(\n        ModelName,\n        on_delete=models.CASCADE,\n        related_name='item'\n    )", displayText: "🐍 OneToOneField (Django)" },
+        { text: "models.ManyToManyField(\n        ModelName,\n        related_name='items',\n        blank=True\n    )", displayText: "🐍 ManyToManyField (Django)" },
+        { text: "def __str__(self):\n        return self.field_name", displayText: "🐍 __str__ method (Django)" },
+        { text: "class Meta:\n        constraints = [\n            models.UniqueConstraint(\n                fields=['field_name'],\n                name='unique_field_name'\n            )\n        ]", displayText: "🐍 Meta UniqueConstraint (Django)" },
+        { text: "class Meta:\n        ordering = ['-created_at']\n        verbose_name = 'Item'\n        verbose_name_plural = 'Items'", displayText: "🐍 Meta ordering (Django)" },
+        { text: "from django.db import models\nfrom django.utils import timezone", displayText: "🐍 imports (Django)" },
       ];
 
       const origSqlHint = CodeMirror.hint.sql;
@@ -140,6 +171,11 @@
         const origResult = origSqlHint ? origSqlHint(cm, options) : null;
         let list = origResult ? origResult.list : [];
 
+        // ── Check current dialect ──
+        const currentDialect = document.getElementById('sql-dialect')?.value || 'mysql';
+        const isDjango = currentDialect === 'django';
+        const snippets = isDjango ? djangoSnippets : sqlSnippets;
+
         // Dynamically get keywords from the current CodeMirror mode (MySQL, Postgres, SQLite)
         const modeName = cm.getOption("mode");
         const modeInfo = CodeMirror.resolveMode(modeName);
@@ -149,6 +185,26 @@
           if (modeInfo.builtin) sqlKeywords.push(...Object.keys(modeInfo.builtin));
           if (modeInfo.atoms) sqlKeywords.push(...Object.keys(modeInfo.atoms));
         }
+
+        // Add Django/Python keywords if in Django mode
+        if (isDjango) {
+          const djangoKw = [
+            'models', 'CharField', 'TextField', 'IntegerField', 'BigIntegerField',
+            'SmallIntegerField', 'FloatField', 'DecimalField', 'BooleanField',
+            'DateField', 'DateTimeField', 'TimeField', 'EmailField', 'ImageField',
+            'FileField', 'JSONField', 'UUIDField', 'BinaryField', 'AutoField',
+            'ForeignKey', 'OneToOneField', 'ManyToManyField',
+            'CASCADE', 'SET_NULL', 'SET_DEFAULT', 'PROTECT', 'DO_NOTHING',
+            'max_length', 'max_digits', 'decimal_places', 'default', 'null', 'blank',
+            'on_delete', 'related_name', 'verbose_name', 'unique', 'primary_key',
+            'auto_now', 'auto_now_add', 'upload_to', 'choices',
+            'class', 'def', 'self', 'return', 'True', 'False', 'None',
+            'Meta', 'constraints', 'ordering', 'UniqueConstraint',
+            'timezone', 'import', 'from'
+          ];
+          sqlKeywords.push(...djangoKw);
+        }
+
         // Fallback to basic keywords if none found
         if (sqlKeywords.length === 0) {
           sqlKeywords = ["CREATE", "TABLE", "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE", "PRIMARY", "FOREIGN", "KEY", "REFERENCES", "INT", "VARCHAR", "NOT", "NULL", "AUTO_INCREMENT"];
@@ -309,6 +365,7 @@ CREATE TABLE order_items (
       this._on('btn-redo', 'click', () => { if (AppState.redo()) { Canvas.renderAll(); this.renderProperties(); this.toast('Redo', 'info'); } });
       this._on('btn-import-sql', 'click', () => this.showImportSqlDialog());
       this._on('btn-export-sql', 'click', () => this.exportSQL());
+      this._on('btn-export-django', 'click', () => this.exportDjango());
       this._on('btn-export-png', 'click', () => this.exportPNG());
       this._on('btn-export-json', 'click', () => this.exportJSON());
       this._on('btn-zoom-in', 'click', () => { Canvas.zoomIn(); });
@@ -815,9 +872,15 @@ CREATE TABLE order_items (
     generateSQL() {
       if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
       const dialect = document.getElementById('sql-dialect')?.value || 'mysql';
-      const sql = SqlExporter.export(AppState.tables, AppState.connections, dialect);
-      this.setSql(sql);
-      this.toast('SQL generated in editor', 'success');
+      if (dialect === 'django') {
+        const code = DjangoExporter.export(AppState.tables, AppState.connections);
+        this.setSql(code);
+        this.toast('Django models code generated in editor', 'success');
+      } else {
+        const sql = SqlExporter.export(AppState.tables, AppState.connections, dialect);
+        this.setSql(sql);
+        this.toast('SQL generated in editor', 'success');
+      }
     },
 
     exportSQL() {
@@ -832,6 +895,13 @@ CREATE TABLE order_items (
       const data = AppState.serialize();
       Utils.download('diagram.dbdesign', JSON.stringify(data, null, 2), 'application/json');
       this.toast('JSON exported', 'success');
+    },
+
+    exportDjango() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = DjangoExporter.export(AppState.tables, AppState.connections);
+      Utils.download('models.py', code, 'text/x-python');
+      this.toast('Django models.py exported', 'success');
     },
 
     exportPNG() {

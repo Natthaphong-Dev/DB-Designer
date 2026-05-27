@@ -158,6 +158,18 @@ a { color: inherit; text-decoration: none; }
   border-color: var(--c-accent);
   box-shadow: var(--sh-acc);
 }
+
+.tb-btn-django {
+  background: rgba(16,185,129,0.12);
+  color: #34d399;
+  border-color: rgba(16,185,129,0.3);
+}
+.tb-btn-django:hover {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+  box-shadow: 0 0 24px rgba(16,185,129,0.3);
+}
 .tb-sep {
   width: 1px;
   height: 18px;

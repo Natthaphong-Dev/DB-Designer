@@ -293,6 +293,321 @@
     }
   };
 
+  /* ═══════════════════ DJANGO EXPORTER ═══════════════════ */
+  const DjangoExporter = {
+
+    /* ── SQL Type → Django Field Mapping ── */
+    _fieldMap: {
+      'INT':        { field: 'IntegerField',      args: {} },
+      'INTEGER':    { field: 'IntegerField',      args: {} },
+      'BIGINT':     { field: 'BigIntegerField',   args: {} },
+      'SMALLINT':   { field: 'SmallIntegerField', args: {} },
+      'TINYINT':    { field: 'SmallIntegerField', args: {} },
+      'FLOAT':      { field: 'FloatField',        args: {} },
+      'DOUBLE':     { field: 'FloatField',        args: {} },
+      'DECIMAL':    { field: 'DecimalField',      args: { max_digits: 10, decimal_places: 2 } },
+      'VARCHAR':    { field: 'CharField',         args: { max_length: 255 } },
+      'CHAR':       { field: 'CharField',         args: { max_length: 255 } },
+      'TEXT':       { field: 'TextField',         args: {} },
+      'LONGTEXT':   { field: 'TextField',         args: {} },
+      'MEDIUMTEXT': { field: 'TextField',         args: {} },
+      'BOOLEAN':    { field: 'BooleanField',      args: { default: 'False' } },
+      'BOOL':       { field: 'BooleanField',      args: { default: 'False' } },
+      'DATE':       { field: 'DateField',         args: {} },
+      'DATETIME':   { field: 'DateTimeField',     args: {} },
+      'TIMESTAMP':  { field: 'DateTimeField',     args: {} },
+      'TIME':       { field: 'TimeField',         args: {} },
+      'JSON':       { field: 'JSONField',         args: {} },
+      'JSONB':      { field: 'JSONField',         args: {} },
+      'BLOB':       { field: 'BinaryField',       args: {} },
+      'UUID':       { field: 'UUIDField',         args: {} },
+      'EMAIL':      { field: 'EmailField',        args: {} },
+      'SERIAL':     { field: 'AutoField',         args: {} },
+      'BIGSERIAL':  { field: 'BigAutoField',      args: {} },
+    },
+
+    /* ── Main Export Function ── */
+    export(tables, connections) {
+      let code = '';
+
+      // ── Imports ──
+      code += 'from django.db import models\n';
+      code += 'from django.utils import timezone\n';
+      code += '\n';
+      code += '\n';
+
+      // ── Build table name → class name map ──
+      const classNameMap = {};
+      for (const table of tables) {
+        if (table.type === 'note') continue;
+        classNameMap[table.name] = this._toClassName(table.name);
+      }
+
+      // ── Generate each model ──
+      for (const table of tables) {
+        if (table.type === 'note') continue;
+        code += this._modelCode(table, connections, tables, classNameMap);
+        code += '\n';
+      }
+
+      return code.trimEnd() + '\n';
+    },
+
+    /* ── Convert table_name → ClassName (PascalCase, singular) ── */
+    _toClassName(name) {
+      // Remove trailing 's' for simple plural (basic singularization)
+      let singular = name;
+      if (singular.endsWith('ies')) {
+        singular = singular.slice(0, -3) + 'y';
+      } else if (singular.endsWith('ses') || singular.endsWith('xes') || singular.endsWith('zes') || singular.endsWith('ches') || singular.endsWith('shes')) {
+        singular = singular.slice(0, -2);
+      } else if (singular.endsWith('s') && !singular.endsWith('ss') && !singular.endsWith('us')) {
+        singular = singular.slice(0, -1);
+      }
+
+      // snake_case → PascalCase
+      return singular
+        .split('_')
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join('');
+    },
+
+    /* ── Generate a single model class ── */
+    _modelCode(table, connections, allTables, classNameMap) {
+      const className = classNameMap[table.name];
+      const indent = '    ';
+      let code = '';
+
+      // ── Comment block ──
+      code += `# ${'-'.repeat(40)}\n`;
+      code += `# ${className}\n`;
+      code += `# ${'-'.repeat(40)}\n`;
+
+      // ── Class declaration ──
+      code += `class ${className}(models.Model):\n`;
+
+      // ── Find FK connections TO this table (this table holds the FK column) ──
+      const fkConns = connections.filter(c => c.toTableId === table.id);
+      const fkColNames = new Set(fkConns.map(c => c.toColumn).filter(Boolean));
+
+      // ── Fields ──
+      let hasFields = false;
+      for (const col of table.columns) {
+        // Skip auto-increment PK (Django adds it automatically)
+        if (col.pk && col.ai) continue;
+
+        // Check if this column is a FK
+        if (fkColNames.has(col.name)) {
+          // Find the connection for this FK column
+          const fkConn = fkConns.find(c => c.toColumn === col.name);
+          if (fkConn) {
+            const refTable = allTables.find(t => t.id === fkConn.fromTableId);
+            if (refTable) {
+              const refClassName = classNameMap[refTable.name];
+              const relatedName = this._toRelatedName(table.name);
+
+              // Determine on_delete
+              const onDelete = col.nn ? 'models.CASCADE' : 'models.SET_NULL';
+
+              code += `${indent}${col.name} = models.ForeignKey(\n`;
+              code += `${indent}${indent}${refClassName},\n`;
+              code += `${indent}${indent}on_delete=${onDelete},\n`;
+              if (!col.nn) {
+                code += `${indent}${indent}null=True,\n`;
+                code += `${indent}${indent}blank=True,\n`;
+              }
+              code += `${indent}${indent}related_name='${relatedName}'\n`;
+              code += `${indent})\n`;
+              hasFields = true;
+              continue;
+            }
+          }
+        }
+
+        // Regular field
+        code += `${indent}${this._fieldLine(col)}`;
+        hasFields = true;
+      }
+
+      // ── Auto-add created_at / updated_at if not present ──
+      const colNames = table.columns.map(c => c.name.toLowerCase());
+      if (!colNames.includes('created_at')) {
+        code += `${indent}created_at = models.DateTimeField(default=timezone.now)\n`;
+        hasFields = true;
+      }
+      if (!colNames.includes('updated_at')) {
+        code += `${indent}updated_at = models.DateTimeField(auto_now=True)\n`;
+        hasFields = true;
+      }
+
+      if (!hasFields) {
+        code += `${indent}pass\n`;
+      }
+
+      // ── __str__ method ──
+      code += `\n${indent}def __str__(self):\n`;
+      const strField = this._findStrField(table);
+      code += `${indent}${indent}return self.${strField}\n`;
+
+      // ── Meta class (unique constraints) ──
+      const uqCols = table.columns.filter(c => c.uq && !c.pk);
+      if (uqCols.length > 0) {
+        code += `\n${indent}class Meta:\n`;
+        code += `${indent}${indent}constraints = [\n`;
+        for (const uqCol of uqCols) {
+          const constraintName = `unique_${table.name}_${uqCol.name}`;
+          code += `${indent}${indent}${indent}models.UniqueConstraint(\n`;
+          code += `${indent}${indent}${indent}${indent}fields=['${uqCol.name}'],\n`;
+          code += `${indent}${indent}${indent}${indent}name='${constraintName}'\n`;
+          code += `${indent}${indent}${indent}),\n`;
+        }
+        code += `${indent}${indent}]\n`;
+      }
+
+      code += '\n';
+      return code;
+    },
+
+    /* ── Generate a field line ── */
+    _fieldLine(col) {
+      // Parse type: VARCHAR(100) → base=VARCHAR, params=100
+      const typeMatch = (col.type || 'VARCHAR(255)').match(/^(\w+)(?:\(([^)]*)\))?$/);
+      const baseType = typeMatch ? typeMatch[1].toUpperCase() : 'VARCHAR';
+      const typeParams = typeMatch ? typeMatch[2] : null;
+
+      const mapping = this._fieldMap[baseType] || { field: 'CharField', args: { max_length: 255 } };
+      let fieldType = mapping.field;
+      const fieldArgs = Object.assign({}, mapping.args);
+
+      // ── Handle special cases ──
+
+      // PK field (non auto-increment)
+      if (col.pk && !col.ai) {
+        fieldArgs.primary_key = 'True';
+      }
+
+      // CharField with max_length from type params
+      if ((fieldType === 'CharField' || fieldType === 'EmailField') && typeParams) {
+        fieldArgs.max_length = parseInt(typeParams) || 255;
+      }
+
+      // DecimalField with precision
+      if (fieldType === 'DecimalField' && typeParams) {
+        const parts = typeParams.split(',').map(s => parseInt(s.trim()));
+        if (parts.length >= 2) {
+          fieldArgs.max_digits = parts[0];
+          fieldArgs.decimal_places = parts[1];
+        } else if (parts.length === 1) {
+          fieldArgs.max_digits = parts[0];
+          fieldArgs.decimal_places = 2;
+        }
+      }
+
+      // NOT NULL / nullable
+      if (!col.nn && !col.pk) {
+        fieldArgs.null = 'True';
+        fieldArgs.blank = 'True';
+      }
+
+      // UNIQUE
+      if (col.uq && !col.pk) {
+        fieldArgs.unique = 'True';
+      }
+
+      // DEFAULT value
+      if (col.defaultVal !== null && col.defaultVal !== undefined && col.defaultVal !== '') {
+        const dv = col.defaultVal;
+        // Handle common defaults
+        if (dv.toUpperCase() === 'CURRENT_TIMESTAMP' || dv.toUpperCase() === 'NOW()') {
+          fieldArgs.default = 'timezone.now';
+        } else if (dv === '0' || dv === '1') {
+          if (fieldType === 'BooleanField') {
+            fieldArgs.default = dv === '1' ? 'True' : 'False';
+          } else {
+            fieldArgs.default = dv;
+          }
+        } else if (dv.startsWith("'") && dv.endsWith("'")) {
+          fieldArgs.default = dv;
+        } else if (!isNaN(dv)) {
+          fieldArgs.default = dv;
+        } else {
+          fieldArgs.default = `'${dv}'`;
+        }
+      }
+
+      // ── Build args string ──
+      const argsStr = this._buildArgs(fieldArgs, fieldType);
+
+      return `${col.name} = models.${fieldType}(${argsStr})\n`;
+    },
+
+    /* ── Build arguments string ── */
+    _buildArgs(args, fieldType) {
+      const parts = [];
+      // Define argument order
+      const order = ['max_length', 'max_digits', 'decimal_places', 'primary_key', 'unique', 'null', 'blank', 'default'];
+      
+      for (const key of order) {
+        if (args[key] !== undefined) {
+          const val = args[key];
+          // Don't quote Python keywords and special values
+          if (typeof val === 'string' && (val === 'True' || val === 'False' || val === 'None' || val === 'timezone.now' || val === 'list' || val === 'dict')) {
+            parts.push(`${key}=${val}`);
+          } else if (typeof val === 'number') {
+            parts.push(`${key}=${val}`);
+          } else {
+            parts.push(`${key}=${val}`);
+          }
+        }
+      }
+      
+      // Any remaining args not in order
+      for (const [key, val] of Object.entries(args)) {
+        if (!order.includes(key)) {
+          parts.push(`${key}=${val}`);
+        }
+      }
+
+      // Multi-line if too long
+      if (parts.length > 2 || parts.join(', ').length > 50) {
+        return '\n        ' + parts.join(',\n        ') + '\n    ';
+      }
+      return parts.join(', ');
+    },
+
+    /* ── Find the best field for __str__ ── */
+    _findStrField(table) {
+      const nameFields = ['name', 'title', 'username', 'user_name', 'full_name',
+                          'email', 'code', 'label', 'description'];
+      
+      // Check for common name patterns
+      for (const col of table.columns) {
+        const lower = col.name.toLowerCase();
+        if (nameFields.includes(lower)) return col.name;
+        if (lower.endsWith('_name') || lower.endsWith('_title')) return col.name;
+      }
+      
+      // Check for any CharField/TextField that's not a FK
+      for (const col of table.columns) {
+        const baseType = (col.type || '').replace(/\(.*\)/, '').toUpperCase();
+        if ((baseType === 'VARCHAR' || baseType === 'CHAR' || baseType === 'TEXT') && !col.fk) {
+          return col.name;
+        }
+      }
+
+      // Fallback to first non-PK column or PK
+      const nonPk = table.columns.find(c => !c.pk);
+      return nonPk ? nonPk.name : (table.columns[0]?.name || 'id');
+    },
+
+    /* ── Generate related_name from table name ── */
+    _toRelatedName(tableName) {
+      // products → products, order_items → order_items
+      return tableName.toLowerCase();
+    }
+  };
+
   global.SqlParser = SqlParser;
   global.SqlExporter = SqlExporter;
+  global.DjangoExporter = DjangoExporter;
 })(window);
