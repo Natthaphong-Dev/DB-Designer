@@ -298,85 +298,82 @@
     _parseModelBody(tableName, body) {
       const columns = [];
       const fks = [];
-      const lines = body.split('\n');
-      
       let hasPk = false;
 
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        // Skip methods, nested classes, and empty lines
-        if (!line || line.startsWith('def ') || line.startsWith('class ')) continue;
+      // Extract fields: field_name = models.FieldType(args)
+      // This regex matches across newlines for the arguments inside parentheses
+      const fieldRegex = /^\s*(\w+)\s*=\s*models\.(\w+)\s*\(([\s\S]*?)\)/gm;
+      let match;
+      while ((match = fieldRegex.exec(body)) !== null) {
+        const colName = match[1];
+        const fieldType = match[2];
+        const argsRaw = match[3];
+        // Normalize args string (remove newlines and extra spaces)
+        const args = argsRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ');
 
-        // Match: field_name = models.FieldType(...)
-        const fieldMatch = line.match(/^(\w+)\s*=\s*models\.(\w+)\((.*)\)/);
-        if (fieldMatch) {
-          const colName = fieldMatch[1];
-          const fieldType = fieldMatch[2];
-          const args = fieldMatch[3];
-
-          // Handle Foreign Keys
-          if (fieldType === 'ForeignKey' || fieldType === 'OneToOneField') {
-            const targetMatch = args.match(/^['"]?(\w+)['"]?/);
-            if (targetMatch) {
-              fks.push({
-                fromCol: colName,
-                toClass: targetMatch[1] // The related Model name
-              });
-              
-              const nn = !args.includes('null=True');
-              columns.push(AppState.newColumn({
-                name: colName,
-                type: 'INT',
-                pk: false,
-                nn: nn,
-                ai: false,
-                uq: fieldType === 'OneToOneField',
-                fk: true,
-                defaultVal: null
-              }));
-              continue;
-            }
+        // Handle Foreign Keys
+        if (fieldType === 'ForeignKey' || fieldType === 'OneToOneField') {
+          // The first argument is the related model
+          const targetMatch = args.match(/^\s*['"]?(\w+)['"]?/);
+          if (targetMatch) {
+            fks.push({
+              fromCol: colName,
+              toClass: targetMatch[1] // The related Model name
+            });
+            
+            const nn = !args.includes('null=True');
+            columns.push(AppState.newColumn({
+              name: colName,
+              type: 'INT',
+              pk: false,
+              nn: nn,
+              ai: false,
+              uq: fieldType === 'OneToOneField',
+              fk: true,
+              defaultVal: null
+            }));
+            continue;
           }
-
-          // Regular Fields
-          let colType = this._typeMap[fieldType] || 'VARCHAR(255)';
-          
-          if (fieldType === 'CharField' || fieldType === 'EmailField') {
-            const m = args.match(/max_length\s*=\s*(\d+)/);
-            if (m) colType = `VARCHAR(${m[1]})`;
-          } else if (fieldType === 'DecimalField') {
-            const mdMatch = args.match(/max_digits\s*=\s*(\d+)/);
-            const dpMatch = args.match(/decimal_places\s*=\s*(\d+)/);
-            if (mdMatch && dpMatch) {
-              colType = `DECIMAL(${mdMatch[1]}, ${dpMatch[1]})`;
-            }
-          }
-
-          const pk = args.includes('primary_key=True');
-          const nn = !(args.includes('null=True') || args.includes('blank=True'));
-          const uq = args.includes('unique=True');
-          const ai = fieldType === 'AutoField' || fieldType === 'BigAutoField';
-
-          let defaultVal = null;
-          const defMatch = args.match(/default\s*=\s*([^,)]+)/);
-          if (defMatch) {
-            defaultVal = defMatch[1].trim();
-            if (defaultVal === 'timezone.now') defaultVal = 'CURRENT_TIMESTAMP';
-          }
-
-          if (pk) hasPk = true;
-
-          columns.push(AppState.newColumn({
-            name: colName,
-            type: colType,
-            pk,
-            nn: nn || pk,
-            ai,
-            uq,
-            fk: false,
-            defaultVal
-          }));
         }
+
+        // Regular Fields
+        let colType = this._typeMap[fieldType] || 'VARCHAR(255)';
+        
+        if (fieldType === 'CharField' || fieldType === 'EmailField') {
+          const m = args.match(/max_length\s*=\s*(\d+)/);
+          if (m) colType = `VARCHAR(${m[1]})`;
+        } else if (fieldType === 'DecimalField') {
+          const mdMatch = args.match(/max_digits\s*=\s*(\d+)/);
+          const dpMatch = args.match(/decimal_places\s*=\s*(\d+)/);
+          if (mdMatch && dpMatch) {
+            colType = `DECIMAL(${mdMatch[1]}, ${dpMatch[1]})`;
+          }
+        }
+
+        const pk = args.includes('primary_key=True');
+        const nn = !(args.includes('null=True') || args.includes('blank=True'));
+        const uq = args.includes('unique=True');
+        const ai = fieldType === 'AutoField' || fieldType === 'BigAutoField';
+
+        let defaultVal = null;
+        const defMatch = args.match(/default\s*=\s*([^,)]+)/);
+        if (defMatch) {
+          defaultVal = defMatch[1].trim();
+          if (defaultVal === 'timezone.now') defaultVal = 'CURRENT_TIMESTAMP';
+        }
+
+        if (pk) hasPk = true;
+
+        columns.push(AppState.newColumn({
+          name: colName,
+          type: colType,
+          pk,
+          nn: nn || pk,
+          ai,
+          uq,
+          fk: false,
+          defaultVal
+        }));
       }
 
       // Django automatically adds an 'id' primary key if none is specified
