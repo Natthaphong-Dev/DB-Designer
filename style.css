@@ -106,7 +106,13 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 4px;
   flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
+#tb-actions::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+
 #tb-zoom {
   display: flex;
   align-items: center;
@@ -159,6 +165,7 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--sh-acc);
 }
 
+/* 🐍 Django — Emerald */
 .tb-btn-django {
   background: rgba(16,185,129,0.12);
   color: #34d399;
@@ -168,8 +175,74 @@ a { color: inherit; text-decoration: none; }
   background: #10b981;
   color: white;
   border-color: #10b981;
-  box-shadow: 0 0 24px rgba(16,185,129,0.3);
+  box-shadow: 0 0 20px rgba(16,185,129,0.35);
 }
+
+/* 🔬 SQLAlchemy — Amber/Yellow */
+.tb-btn-sqlalchemy {
+  background: rgba(245,158,11,0.12);
+  color: #fbbf24;
+  border-color: rgba(245,158,11,0.3);
+}
+.tb-btn-sqlalchemy:hover {
+  background: #f59e0b;
+  color: #1a1200;
+  border-color: #f59e0b;
+  box-shadow: 0 0 20px rgba(245,158,11,0.35);
+}
+
+/* 🔷 Prisma — Indigo/Teal */
+.tb-btn-prisma {
+  background: rgba(56,189,248,0.12);
+  color: #38bdf8;
+  border-color: rgba(56,189,248,0.3);
+}
+.tb-btn-prisma:hover {
+  background: #0ea5e9;
+  color: white;
+  border-color: #0ea5e9;
+  box-shadow: 0 0 20px rgba(14,165,233,0.35);
+}
+
+/* 🟡 TypeORM — Orange */
+.tb-btn-typeorm {
+  background: rgba(249,115,22,0.12);
+  color: #fb923c;
+  border-color: rgba(249,115,22,0.3);
+}
+.tb-btn-typeorm:hover {
+  background: #f97316;
+  color: white;
+  border-color: #f97316;
+  box-shadow: 0 0 20px rgba(249,115,22,0.35);
+}
+
+/* 🐹 GORM — Cyan/Teal (Go blue) */
+.tb-btn-gorm {
+  background: rgba(6,182,212,0.12);
+  color: #22d3ee;
+  border-color: rgba(6,182,212,0.3);
+}
+.tb-btn-gorm:hover {
+  background: #06b6d4;
+  color: white;
+  border-color: #06b6d4;
+  box-shadow: 0 0 20px rgba(6,182,212,0.35);
+}
+
+/* 🐘 Laravel — Rose/Red */
+.tb-btn-laravel {
+  background: rgba(244,63,94,0.12);
+  color: #fb7185;
+  border-color: rgba(244,63,94,0.3);
+}
+.tb-btn-laravel:hover {
+  background: #f43f5e;
+  color: white;
+  border-color: #f43f5e;
+  box-shadow: 0 0 20px rgba(244,63,94,0.35);
+}
+
 .tb-sep {
   width: 1px;
   height: 18px;

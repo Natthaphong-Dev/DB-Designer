@@ -88,7 +88,12 @@
         mysql: 'text/x-mysql',
         postgresql: 'text/x-pgsql',
         sqlite: 'text/x-sqlite',
-        django: 'text/x-python'
+        django: 'text/x-python',
+        sqlalchemy: 'text/x-python',
+        prisma: 'text/javascript',
+        typeorm: 'text/typescript',
+        gorm: 'text/x-go',
+        laravel: 'text/x-php'
       };
 
       this._editor = CodeMirror.fromTextArea(ta, {
@@ -109,9 +114,28 @@
       
       const dialectSel = document.getElementById('sql-dialect');
       if (dialectSel) {
-        dialectSel.addEventListener('change', (e) => {
-          this._editor.setOption('mode', dialectMap[e.target.value] || 'text/x-mysql');
-        });
+        const updateUIForDialect = (val) => {
+          this._editor.setOption('mode', dialectMap[val] || 'text/x-mysql');
+          
+          // Update button labels
+          const btnGen = document.getElementById('btn-gen-sql');
+          const btnParse = document.getElementById('btn-parse-sql');
+          
+          let langName = 'SQL';
+          if (val === 'django') langName = 'Django';
+          else if (val === 'sqlalchemy') langName = 'SQLAlchemy';
+          else if (val === 'prisma') langName = 'Prisma';
+          else if (val === 'typeorm') langName = 'TypeORM';
+          else if (val === 'gorm') langName = 'GORM';
+          else if (val === 'laravel') langName = 'Laravel';
+          
+          if (btnGen) btnGen.textContent = `Generate ${langName}`;
+          if (btnParse) btnParse.textContent = `Parse ${langName}`;
+        };
+
+        dialectSel.addEventListener('change', (e) => updateUIForDialect(e.target.value));
+        // Initialize buttons on load
+        setTimeout(() => updateUIForDialect(dialectSel.value), 100);
       }
 
       // Custom Hint with Snippets
@@ -366,6 +390,11 @@ CREATE TABLE order_items (
       this._on('btn-import-sql', 'click', () => this.showImportSqlDialog());
       this._on('btn-export-sql', 'click', () => this.exportSQL());
       this._on('btn-export-django', 'click', () => this.exportDjango());
+      this._on('btn-export-sqlalchemy', 'click', () => this.exportSqlAlchemy());
+      this._on('btn-export-prisma', 'click', () => this.exportPrisma());
+      this._on('btn-export-typeorm', 'click', () => this.exportTypeOrm());
+      this._on('btn-export-gorm', 'click', () => this.exportGorm());
+      this._on('btn-export-laravel', 'click', () => this.exportLaravel());
       this._on('btn-export-png', 'click', () => this.exportPNG());
       this._on('btn-export-json', 'click', () => this.exportJSON());
       this._on('btn-zoom-in', 'click', () => { Canvas.zoomIn(); });
@@ -397,6 +426,17 @@ CREATE TABLE order_items (
       // Panel toggle buttons (in toolbar)
       this._on('btn-toggle-sql', 'click', () => this.togglePanel('left'));
       this._on('btn-toggle-shapes', 'click', () => this.togglePanel('right'));
+
+      // Horizontal scroll support via mouse wheel on toolbar buttons container
+      const tbActions = document.getElementById('tb-actions');
+      if (tbActions) {
+        tbActions.addEventListener('wheel', (e) => {
+          if (e.deltaY !== 0) {
+            e.preventDefault();
+            tbActions.scrollLeft += e.deltaY;
+          }
+        }, { passive: false });
+      }
     },
 
     _on(id, ev, fn) {
@@ -843,15 +883,38 @@ CREATE TABLE order_items (
     parseSqlText(sql) {
       try {
         const dialect = document.getElementById('sql-dialect')?.value || 'mysql';
-        const isDjango = dialect === 'django';
+
+        let parsedResult;
+        switch (dialect) {
+          case 'django':
+            parsedResult = DjangoParser.parse(sql);
+            break;
+          case 'prisma':
+            parsedResult = PrismaParser.parse(sql);
+            break;
+          case 'sqlalchemy':
+            parsedResult = SqlAlchemyParser.parse(sql);
+            break;
+          case 'typeorm':
+            parsedResult = TypeOrmParser.parse(sql);
+            break;
+          case 'gorm':
+            parsedResult = GormParser.parse(sql);
+            break;
+          case 'laravel':
+            parsedResult = LaravelParser.parse(sql);
+            break;
+          default:
+            parsedResult = SqlParser.parse(sql);
+            break;
+        }
         
-        const { tables, connections } = isDjango 
-          ? DjangoParser.parse(sql) 
-          : SqlParser.parse(sql);
-          
-        if (tables.length === 0) { 
-          this.toast(isDjango ? 'No Django Models found' : 'No CREATE TABLE found in SQL', 'error'); 
-          return; 
+        const { tables, connections } = parsedResult;
+
+        if (tables.length === 0) {
+          const isORM = ['django', 'prisma', 'sqlalchemy', 'typeorm', 'gorm', 'laravel'].includes(dialect);
+          this.toast(isORM ? `No ${dialect} models found` : 'No CREATE TABLE found in SQL', 'error');
+          return;
         }
 
         const existingNames = new Set(AppState.tables.map(t => t.name.toLowerCase()));
@@ -859,7 +922,6 @@ CREATE TABLE order_items (
 
         for (const t of tables) {
           if (existingNames.has(t.name.toLowerCase())) { skipped++; continue; }
-          // Offset so it doesn't stack with existing
           t.x += AppState.tables.length * 10;
           t.y += AppState.tables.length * 10;
           AppState.addTable(t);
@@ -881,14 +943,48 @@ CREATE TABLE order_items (
     generateSQL() {
       if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
       const dialect = document.getElementById('sql-dialect')?.value || 'mysql';
-      if (dialect === 'django') {
-        const code = DjangoExporter.export(AppState.tables, AppState.connections);
-        this.setSql(code);
-        this.toast('Django models code generated in editor', 'success');
-      } else {
-        const sql = SqlExporter.export(AppState.tables, AppState.connections, dialect);
-        this.setSql(sql);
-        this.toast('SQL generated in editor', 'success');
+      switch (dialect) {
+        case 'django': {
+          const code = DjangoExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🐍 Django models.py generated', 'success');
+          break;
+        }
+        case 'sqlalchemy': {
+          const code = SqlAlchemyExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🔬 SQLAlchemy models generated', 'success');
+          break;
+        }
+        case 'prisma': {
+          const code = PrismaExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🔷 Prisma schema generated', 'success');
+          break;
+        }
+        case 'typeorm': {
+          const code = TypeOrmExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🟡 TypeORM entities generated', 'success');
+          break;
+        }
+        case 'gorm': {
+          const code = GormExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🐹 GORM structs generated', 'success');
+          break;
+        }
+        case 'laravel': {
+          const code = LaravelExporter.export(AppState.tables, AppState.connections);
+          this.setSql(code);
+          this.toast('🐘 Laravel Eloquent models generated', 'success');
+          break;
+        }
+        default: {
+          const sql = SqlExporter.export(AppState.tables, AppState.connections, dialect);
+          this.setSql(sql);
+          this.toast('SQL generated in editor', 'success');
+        }
       }
     },
 
@@ -910,7 +1006,42 @@ CREATE TABLE order_items (
       if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
       const code = DjangoExporter.export(AppState.tables, AppState.connections);
       Utils.download('models.py', code, 'text/x-python');
-      this.toast('Django models.py exported', 'success');
+      this.toast('🐍 Django models.py exported', 'success');
+    },
+
+    exportSqlAlchemy() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = SqlAlchemyExporter.export(AppState.tables, AppState.connections);
+      Utils.download('models.py', code, 'text/x-python');
+      this.toast('🔬 SQLAlchemy models.py exported', 'success');
+    },
+
+    exportPrisma() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = PrismaExporter.export(AppState.tables, AppState.connections);
+      Utils.download('schema.prisma', code, 'text/plain');
+      this.toast('🔷 Prisma schema.prisma exported', 'success');
+    },
+
+    exportTypeOrm() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = TypeOrmExporter.export(AppState.tables, AppState.connections);
+      Utils.download('entities.ts', code, 'text/plain');
+      this.toast('🟡 TypeORM entities.ts exported', 'success');
+    },
+
+    exportGorm() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = GormExporter.export(AppState.tables, AppState.connections);
+      Utils.download('models.go', code, 'text/plain');
+      this.toast('🐹 GORM models.go exported', 'success');
+    },
+
+    exportLaravel() {
+      if (AppState.tables.length === 0) { this.toast('Canvas is empty', 'error'); return; }
+      const code = LaravelExporter.export(AppState.tables, AppState.connections);
+      Utils.download('Models.php', code, 'text/plain');
+      this.toast('🐘 Laravel Eloquent Models.php exported', 'success');
     },
 
     exportPNG() {

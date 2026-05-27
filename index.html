@@ -65,9 +65,12 @@
         <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 9V1M3 5l4-4 4 4" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 10v2h12v-2" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
         Export SQL
       </button>
-      <button class="tb-btn tb-btn-django" id="btn-export-django" title="Export as Django models.py">
-        🐍 Django
-      </button>
+      <button class="tb-btn tb-btn-django" id="btn-export-django" title="Export as Django models.py">Django</button>
+      <button class="tb-btn tb-btn-sqlalchemy" id="btn-export-sqlalchemy" title="Export as SQLAlchemy models">SQLAlchemy</button>
+      <button class="tb-btn tb-btn-prisma" id="btn-export-prisma" title="Export as Prisma schema">Prisma</button>
+      <button class="tb-btn tb-btn-typeorm" id="btn-export-typeorm" title="Export as TypeORM entities">TypeORM</button>
+      <button class="tb-btn tb-btn-gorm" id="btn-export-gorm" title="Export as GORM structs">GORM</button>
+      <button class="tb-btn tb-btn-laravel" id="btn-export-laravel" title="Export as Laravel Eloquent models">Laravel</button>
       <button class="tb-btn" id="btn-export-png" title="Export as PNG image">🖼 PNG</button>
       <button class="tb-btn" id="btn-export-json" title="Export as JSON">{ } JSON</button>
     </div>
@@ -104,10 +107,19 @@
         </span>
         <div class="panel-hd-right">
           <select id="sql-dialect" title="SQL Dialect">
-            <option value="mysql">MySQL</option>
-            <option value="postgresql">PostgreSQL</option>
-            <option value="sqlite">SQLite</option>
-            <option value="django">🐍 Django Models</option>
+            <optgroup label="SQL Databases">
+              <option value="mysql">MySQL</option>
+              <option value="postgresql">PostgreSQL</option>
+              <option value="sqlite">SQLite</option>
+            </optgroup>
+            <optgroup label="ORM Frameworks">
+              <option value="django"> Django (Python)</option>
+              <option value="sqlalchemy"> SQLAlchemy (Python)</option>
+              <option value="prisma"> Prisma (Node.js)</option>
+              <option value="typeorm"> TypeORM (TypeScript)</option>
+              <option value="gorm"> GORM (Go)</option>
+              <option value="laravel"> Laravel Eloquent (PHP)</option>
+            </optgroup>
           </select>
           <button class="btn-icon" id="btn-clear-sql" title="Clear editor">✕</button>
         </div>
@@ -314,12 +326,17 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/php/php.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <!-- App Scripts (order matters) -->
   <script src="js/utils.js"></script>
   <script src="js/state.js"></script>
   <script src="js/sql.js"></script>
+  <script src="js/parsers.js"></script>
+  <script src="js/exporters.js"></script>
   <script src="js/files.js"></script>
   <script src="js/canvas.js"></script>
   <script src="js/main.js"></script>

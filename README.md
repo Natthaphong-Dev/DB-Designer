@@ -24,10 +24,12 @@
 
 *   🖱️ **Interactive ER Diagrams**: Drag and drop Tables, Views, and Notes onto a dynamic canvas. Visually map Foreign Keys using standard Crow's Foot notation.
 *   💻 **Smart SQL Editor**: Powered by CodeMirror, featuring live syntax highlighting and context-aware auto-completion.
-*   🔄 **Dialect Support**: Seamlessly toggle between **MySQL**, **PostgreSQL**, **SQLite**, and **🐍 Django Models**. Keyword suggestions automatically adapt to your chosen dialect.
+*   🔄 **Extensive Dialect & Framework Support**: Seamlessly toggle between:
+    *   **Pure SQL**: MySQL, PostgreSQL, SQLite.
+    *   **ORMs & Frameworks**: Django (Python), SQLAlchemy (Python), TypeORM (TypeScript), Prisma (TypeScript), GORM (Go), and Laravel (PHP).
 *   ⚡ **Real-Time Two-Way Sync**:
-    *   **Visual to Code**: Map your schemas visually, and the DDL scripts generate instantly.
-    *   **Code to Visual**: Paste your `CREATE TABLE` scripts into the editor, click "Parse to Canvas", and watch your ER Diagram build itself.
+    *   **Visual to Code (Export)**: Map your schemas visually (including 1:1, 1:N, and implicit/explicit Many-to-Many relationships), and the DDL/ORM scripts generate instantly.
+    *   **Code to Visual (Parse)**: Paste your `CREATE TABLE`, Models, or Entities into the editor, click "Parse to Canvas", and watch your ER Diagram build itself (with all Foreign Keys and Decorators auto-connected).
 *   📝 **Customization & Documentation**: Color-code tables for visual grouping. Use floating "Notes" with adjustable backgrounds to document logic directly on the canvas.
 *   💾 **Local Workspace**: Create folders and organize diagram files right in the browser. 100% powered by `localStorage`.
 *   📤 **Export Engine**: Export schemas as high-res PNG images, JSON backup files, raw `.sql` files, or even fully structured **Django `models.py`** files.
@@ -83,6 +85,7 @@ Since this is a frontend-only tool, installation is incredibly simple.
 *   Click the **Connect Tables** button in the right panel.
 *   Click the **Source Table** (the one with the Foreign Key), then click the **Target Table** (the one with the Primary Key).
 *   A modal will pop up allowing you to select the exact columns and the type of relationship (e.g., 1:N, 1:1, N:M).
+*   *Note on Many-to-Many*: When exporting to ORMs, DB Designer will automatically generate the appropriate tags/decorators. For pure SQL, it will auto-generate the intermediate **Junction Tables**.
 
 ### 6. 💻 SQL Editor Sync
 *   **Parse to Canvas**: Paste your `CREATE TABLE` and `CREATE VIEW` queries into the left-side SQL Editor, and click the parse button to instantly draw the ER diagram.
@@ -105,7 +108,9 @@ Since this is a frontend-only tool, installation is incredibly simple.
 ├── 📁 js/
 │   ├── 📄 main.js     # Boot, event bindings, CodeMirror configuration
 │   ├── 📄 canvas.js   # SVG Canvas rendering, pan/zoom, drag & drop
-│   ├── 📄 sql.js      # Parser (DDL -> JSON) & Exporter (JSON -> DDL)
+│   ├── 📄 sql.js      # Pure SQL Parsers (MySQL, Postgres, SQLite) and Exporters
+│   ├── 📄 parsers.js  # ORM Code extractors (TypeORM, Prisma, GORM, Laravel)
+│   ├── 📄 exporters.js# ORM Code generators (TypeORM, Prisma, GORM, Laravel)
 │   ├── 📄 state.js    # Global State Management
 │   ├── 📄 files.js    # File Explorer & LocalStorage logic
 │   └── 📄 utils.js    # Shared utilities and helpers

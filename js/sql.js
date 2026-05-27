@@ -72,24 +72,58 @@
       }
 
       /* ── Resolve FK → connection objects ── */
-      const connections = rawConns.map(rc => {
+      const connections = [];
+      const m2mTables = new Set();
+      
+      // Pass 1: Identify Junction Tables (Many-to-Many)
+      for (const t of tables) {
+         // A junction table usually has exactly 2 foreign keys and no other meaningful columns
+         const tFks = rawConns.filter(rc => rc.fromTableName.toLowerCase() === t.name.toLowerCase());
+         if (tFks.length === 2 && t.columns.length <= 3) {
+            // Check if both FKs point to different tables, or even the same (self-referencing M:N)
+            m2mTables.add(t.name);
+            connections.push(AppState.newConnection({
+               fromTableId: tables.find(x => x.name.toLowerCase() === tFks[1].toTableName.toLowerCase())?.id,
+               fromColumn: 'id',
+               toTableId: tables.find(x => x.name.toLowerCase() === tFks[0].toTableName.toLowerCase())?.id,
+               toColumn: 'id',
+               type: 'many-to-many',
+               label: 'm:n'
+            }));
+         }
+      }
+      
+      // Remove M2M junction tables from the visual canvas
+      for (const m2m of m2mTables) {
+         const idx = tables.findIndex(t => t.name === m2m);
+         if (idx !== -1) tables.splice(idx, 1);
+      }
+      
+      // Pass 2: Regular 1:N and 1:1
+      rawConns.forEach(rc => {
+        if (m2mTables.has(rc.fromTableName)) return; // Skip FKs that belonged to junction tables
+        
         const from = tables.find(t => t.name.toLowerCase() === rc.fromTableName.toLowerCase());
         const to   = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
-        if (!from || !to) return null;
+        if (!from || !to) return;
+        
         // Mark FK column
         const fkCol = from.columns.find(c => c.name === rc.fromColumn);
         if (fkCol) fkCol.fk = true;
-        return AppState.newConnection({
+        
+        const isOneToOne = fkCol && fkCol.uq;
+        
+        connections.push(AppState.newConnection({
           fromTableId: to.id,
           fromColumn: rc.toColumn,
           toTableId: from.id,
           toColumn: rc.fromColumn,
-          type: 'one-to-many',
-          label: `fk_${rc.fromColumn}`
-        });
-      }).filter(Boolean);
+          type: isOneToOne ? 'one-to-one' : 'one-to-many',
+          label: isOneToOne ? '1:1' : `fk_${rc.fromColumn}`
+        }));
+      });
 
-      return { tables, connections };
+      return { tables, connections: connections.filter(c => c.fromTableId && c.toTableId) };
     },
 
     _parseBody(tableName, body) {
@@ -195,6 +229,7 @@
         }
       }
       if (cur.trim()) parts.push(cur);
+      return parts;
     }
   };
 
@@ -256,7 +291,8 @@
           fromTableName: tableName,
           fromColumn: fk.fromCol,
           toTableName: this._toTableName(fk.toClass),
-          toColumn: 'id' // Default PK in Django is usually 'id'
+          toColumn: 'id', // Default PK in Django is usually 'id'
+          type: fk.type || 'one-to-many'
         })));
 
         delete parsed._fks;
@@ -264,6 +300,7 @@
       }
 
       // Resolve connections
+      const finalConnections = [];
       const connections = rawConns.map(rc => {
         const from = tables.find(t => t.name.toLowerCase() === rc.fromTableName.toLowerCase());
         const to   = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
@@ -272,14 +309,26 @@
         const fkCol = from.columns.find(c => c.name === rc.fromColumn);
         if (fkCol) fkCol.fk = true;
         
-        return AppState.newConnection({
+        const isM2M = rc.type === 'many-to-many';
+        if (isM2M) {
+           const exists = finalConnections.find(c => 
+              (c.fromTableId === to.id && c.toTableId === from.id) ||
+              (c.fromTableId === from.id && c.toTableId === to.id)
+           );
+           if (exists) return null;
+        }
+        
+        const conn = AppState.newConnection({
           fromTableId: to.id,
-          fromColumn: rc.toColumn,
+          fromColumn: rc.toColumn || 'id',
           toTableId: from.id,
-          toColumn: rc.fromColumn,
-          type: 'one-to-many',
-          label: `fk_${rc.fromColumn}`
+          toColumn: rc.fromColumn || 'id',
+          type: rc.type || 'one-to-many',
+          label: rc.type === 'many-to-many' ? 'm:n' : (rc.type === 'one-to-one' ? '1:1' : `fk_${rc.fromColumn}`)
         });
+        
+        finalConnections.push(conn);
+        return conn;
       }).filter(Boolean);
 
       return { tables, connections };
@@ -312,26 +361,29 @@
         const args = argsRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ');
 
         // Handle Foreign Keys
-        if (fieldType === 'ForeignKey' || fieldType === 'OneToOneField') {
+        if (fieldType === 'ForeignKey' || fieldType === 'OneToOneField' || fieldType === 'ManyToManyField') {
           // The first argument is the related model
           const targetMatch = args.match(/^\s*['"]?(\w+)['"]?/);
           if (targetMatch) {
             fks.push({
-              fromCol: colName,
-              toClass: targetMatch[1] // The related Model name
+              fromCol: fieldType === 'ManyToManyField' ? 'id' : colName,
+              toClass: targetMatch[1], // The related Model name
+              type: fieldType === 'ManyToManyField' ? 'many-to-many' : (fieldType === 'OneToOneField' ? 'one-to-one' : 'one-to-many')
             });
             
-            const nn = !args.includes('null=True');
-            columns.push(AppState.newColumn({
-              name: colName,
-              type: 'INT',
-              pk: false,
-              nn: nn,
-              ai: false,
-              uq: fieldType === 'OneToOneField',
-              fk: true,
-              defaultVal: null
-            }));
+            if (fieldType !== 'ManyToManyField') {
+              const nn = !args.includes('null=True');
+              columns.push(AppState.newColumn({
+                name: colName,
+                type: 'INT',
+                pk: false,
+                nn: nn,
+                ai: false,
+                uq: fieldType === 'OneToOneField',
+                fk: true,
+                defaultVal: null
+              }));
+            }
             continue;
           }
         }
@@ -411,10 +463,53 @@
         if (table.type === 'note') continue;
         sql += this._tableSQL(table, connections, dialect, q) + '\n\n';
       }
+      
+      // Generate Junction Tables for Many-to-Many
+      const m2mConns = connections.filter(c => c.type === 'many-to-many');
+      const generatedJunctions = new Set();
+      
+      for (const conn of m2mConns) {
+        const ft = tables.find(t => t.id === conn.fromTableId);
+        const tt = tables.find(t => t.id === conn.toTableId);
+        if (!ft || !tt) continue;
+        
+        const joinTableName = [ft.name, tt.name].sort().join('_');
+        if (generatedJunctions.has(joinTableName)) continue;
+        generatedJunctions.add(joinTableName);
+        
+        const ftPk = (ft.columns.find(c => c.pk) || ft.columns[0] || {}).name || 'id';
+        const ttPk = (tt.columns.find(c => c.pk) || tt.columns[0] || {}).name || 'id';
+        
+        const ftFk = ft.name.toLowerCase() + '_id';
+        const ttFk = tt.name.toLowerCase() + '_id';
+        
+        const fkType = 'INT'; // Standard fallback
+        
+        sql += `CREATE TABLE ${q}${joinTableName}${q} (\n`;
+        sql += `  ${q}${ftFk}${q} ${fkType} NOT NULL,\n`;
+        sql += `  ${q}${ttFk}${q} ${fkType} NOT NULL,\n`;
+        sql += `  PRIMARY KEY (${q}${ftFk}${q}, ${q}${ttFk}${q})`;
+        
+        if (dialect === 'postgresql' || dialect === 'sqlite') {
+          sql += `,\n  CONSTRAINT "fk_${joinTableName}_${ft.name}" FOREIGN KEY ("${ftFk}") REFERENCES "${ft.name}" ("${ftPk}"),\n`;
+          sql += `  CONSTRAINT "fk_${joinTableName}_${tt.name}" FOREIGN KEY ("${ttFk}") REFERENCES "${tt.name}" ("${ttPk}")\n`;
+        } else {
+          sql += `\n`;
+        }
+        sql += `);\n\n`;
+        
+        if (dialect === 'mysql') {
+          sql += `ALTER TABLE \`${joinTableName}\`\n`;
+          sql += `  ADD CONSTRAINT \`fk_${joinTableName}_${ft.name}\` FOREIGN KEY (\`${ftFk}\`) REFERENCES \`${ft.name}\` (\`${ftPk}\`);\n\n`;
+          sql += `ALTER TABLE \`${joinTableName}\`\n`;
+          sql += `  ADD CONSTRAINT \`fk_${joinTableName}_${tt.name}\` FOREIGN KEY (\`${ttFk}\`) REFERENCES \`${tt.name}\` (\`${ttPk}\`);\n\n`;
+        }
+      }
 
       // ALTER TABLE for MySQL FKs
       if (dialect === 'mysql') {
-        for (const conn of connections) {
+        const standardConns = connections.filter(c => c.type !== 'many-to-many');
+        for (const conn of standardConns) {
           const ft = tables.find(t => t.id === conn.fromTableId); // The One side (referenced)
           const tt = tables.find(t => t.id === conn.toTableId);   // The Many side (with FK)
           if (!ft || !tt) continue;
@@ -451,7 +546,8 @@
         }
 
         if (col.nn || col.pk) def += ' NOT NULL';
-        if (col.uq && !col.pk) def += ' UNIQUE';
+        const isOneToOneFk = connections.some(c => c.toTableId === table.id && c.toColumn === col.name && c.type === 'one-to-one');
+        if ((col.uq && !col.pk) || isOneToOneFk) def += ' UNIQUE';
         if (col.defaultVal !== null && col.defaultVal !== undefined) {
           def += ` DEFAULT ${col.defaultVal}`;
         }
@@ -464,10 +560,11 @@
         lines.push(`  PRIMARY KEY (${pkCols.map(c => `${q}${c.name}${q}`).join(', ')})`);
       }
 
-      // PostgreSQL inline FKs
-      if (dialect === 'postgresql') {
-        for (const conn of connections) {
-          // In Postgres, we want to add the inline FK to the table that HOLDS the FK (the Many side, toTable)
+      // PostgreSQL and SQLite inline FKs
+      if (dialect === 'postgresql' || dialect === 'sqlite') {
+        const standardConns = connections.filter(c => c.type !== 'many-to-many');
+        for (const conn of standardConns) {
+          // In Postgres/SQLite, we want to add the inline FK to the table that HOLDS the FK (the Many side, toTable)
           if (conn.toTableId !== table.id) continue;
           const ft = AppState.tables.find(t => t.id === conn.fromTableId); // The One side (referenced)
           if (!ft) continue;
@@ -582,8 +679,10 @@
       code += `class ${className}(models.Model):\n`;
 
       // ── Find FK connections TO this table (this table holds the FK column) ──
-      const fkConns = connections.filter(c => c.toTableId === table.id);
+      const fkConns = connections.filter(c => c.toTableId === table.id && c.type !== 'many-to-many');
       const fkColNames = new Set(fkConns.map(c => c.toColumn).filter(Boolean));
+      
+      const m2mConns = connections.filter(c => c.fromTableId === table.id && c.type === 'many-to-many');
 
       // ── Fields ──
       let hasFields = false;
@@ -603,8 +702,10 @@
 
               // Determine on_delete
               const onDelete = col.nn ? 'models.CASCADE' : 'models.SET_NULL';
+              
+              const fieldType = fkConn.type === 'one-to-one' ? 'OneToOneField' : 'ForeignKey';
 
-              code += `${indent}${col.name} = models.ForeignKey(\n`;
+              code += `${indent}${col.name} = models.${fieldType}(\n`;
               code += `${indent}${indent}${refClassName},\n`;
               code += `${indent}${indent}on_delete=${onDelete},\n`;
               if (!col.nn) {
@@ -622,6 +723,23 @@
         // Regular field
         code += `${indent}${this._fieldLine(col)}`;
         hasFields = true;
+      }
+      
+      // ── ManyToMany Fields ──
+      for (const m2m of m2mConns) {
+        const refTable = allTables.find(t => t.id === m2m.toTableId);
+        if (refTable) {
+          const refClassName = classNameMap[refTable.name];
+          const relatedName = this._toRelatedName(table.name);
+          const fieldName = refTable.name.toLowerCase();
+          
+          code += `${indent}${fieldName} = models.ManyToManyField(\n`;
+          code += `${indent}${indent}${refClassName},\n`;
+          code += `${indent}${indent}related_name='${relatedName}s',\n`;
+          code += `${indent}${indent}blank=True\n`;
+          code += `${indent})\n`;
+          hasFields = true;
+        }
       }
 
       // ── Auto-add created_at / updated_at if not present ──
