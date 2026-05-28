@@ -854,7 +854,7 @@
          
          let fromSide, toSide;
          if (ft.id === tt.id) {
-           fromSide = 'left';
+           fromSide = 'top';
            toSide = 'right';
          } else if (Math.abs(dx) >= Math.abs(dy)) {
            fromSide = dx >= 0 ? 'right' : 'left';
@@ -998,12 +998,15 @@
       const fromMany = type === 'many-to-many';
       const toMany   = type === 'one-to-many' || type === 'many-to-many';
 
-      // For the "from" side the connection EXITS the table, so we must invert
-      // the side so that the crow's foot fan opens toward the line (away from table).
-      const sideInvert = { right: 'left', left: 'right', top: 'bottom', bottom: 'top' };
-
+      // _addCrowsFoot expects `side` = the direction the fan OPENS (toward the line).
+      // For the FROM side: the line EXITS the table in the `fromSide` direction,
+      //   so the fan should open in that same direction → pass fromSide directly.
+      // For the TO side: the line ARRIVES into the table from the `toSide` direction,
+      //   so the fan should open in that same direction → pass toSide directly.
+      // In both cases, the base (tick) ends up ON the line side (in the gap, visible)
+      // and the three tips converge AT the table edge. No inversion needed.
       if (fromMany) {
-        this._addCrowsFoot(g, fx, fy, sideInvert[fromSide], color);
+        this._addCrowsFoot(g, fx, fy, fromSide, color);
       } else {
         this._addOneMark(g, fx, fy, fromSide, color);
       }
