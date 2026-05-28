@@ -853,7 +853,10 @@
          const dy = tCY - fCY;
          
          let fromSide, toSide;
-         if (Math.abs(dx) >= Math.abs(dy)) {
+         if (ft.id === tt.id) {
+           fromSide = 'left';
+           toSide = 'right';
+         } else if (Math.abs(dx) >= Math.abs(dy)) {
            fromSide = dx >= 0 ? 'right' : 'left';
            toSide   = dx >= 0 ? 'left'  : 'right';
          } else {
@@ -995,8 +998,12 @@
       const fromMany = type === 'many-to-many';
       const toMany   = type === 'one-to-many' || type === 'many-to-many';
 
+      // For the "from" side the connection EXITS the table, so we must invert
+      // the side so that the crow's foot fan opens toward the line (away from table).
+      const sideInvert = { right: 'left', left: 'right', top: 'bottom', bottom: 'top' };
+
       if (fromMany) {
-        this._addCrowsFoot(g, fx, fy, fromSide, color);
+        this._addCrowsFoot(g, fx, fy, sideInvert[fromSide], color);
       } else {
         this._addOneMark(g, fx, fy, fromSide, color);
       }
@@ -1033,12 +1040,12 @@
     },
 
     _addCrowsFoot(g, x, y, side, color) {
-      const DIST = 14;
+      const DIST   = 14;
       const SPREAD = 10;
       let bx, by, lx1, ly1, lx2, ly2, cx, cy;
 
-      // Base of crow's foot (farther from table)
-      // Tips closer to table
+      // "side" here is the direction the fan opens toward (toward the line / away from the table).
+      // Base tick is on the line-side, tips/center converge at the table edge point (x, y).
       switch (side) {
         case 'right':
           bx = x + DIST; by = y;
@@ -1067,6 +1074,7 @@
         default: return;
       }
 
+      // Three lines: base → tip1, base → tip2, base → center
       const paths = [
         [bx, by, lx1, ly1],
         [bx, by, lx2, ly2],
@@ -1084,13 +1092,13 @@
         g.appendChild(line);
       }
 
-      // Tick mark at base
+      // Perpendicular tick at the base
       const TICK = 8;
       let tx1, ty1, tx2, ty2;
       switch (side) {
-        case 'right':  tx1 = bx; ty1 = by - TICK; tx2 = bx; ty2 = by + TICK; break;
+        case 'right':
         case 'left':   tx1 = bx; ty1 = by - TICK; tx2 = bx; ty2 = by + TICK; break;
-        case 'bottom': tx1 = bx - TICK; ty1 = by; tx2 = bx + TICK; ty2 = by; break;
+        case 'bottom':
         case 'top':    tx1 = bx - TICK; ty1 = by; tx2 = bx + TICK; ty2 = by; break;
         default: return;
       }
@@ -1103,6 +1111,7 @@
       tick.setAttribute('pointer-events', 'none');
       g.appendChild(tick);
     }
+
   };
 
   global.Canvas = Canvas;

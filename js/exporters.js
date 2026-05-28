@@ -574,8 +574,9 @@
           const pyType = this._pyType(col.type);
 
           const colArgs = [saType];
-          if (fkColNames.has(col.name)) {
-            const conn = incomingConns.find(c => c.toColumn === col.name);
+          // Only add ForeignKey for non-PK FK columns (not for M2M which are on PK)
+          if (fkColNames.has(col.name) && !col.pk) {
+            const conn = incomingConns.find(c => c.toColumn === col.name && c.type !== 'many-to-many');
             const refTable = conn ? tableById[conn.fromTableId] : null;
             if (refTable) colArgs.push(`ForeignKey("${refTable.name}.${conn.fromColumn || 'id'}")`);
           }
@@ -619,12 +620,12 @@
 
         // Relationship fields
         for (const conn of incomingConns) {
+          if (conn.type === 'many-to-many') continue; // M2M handled separately
           const refTable = tableById[conn.fromTableId];
           if (!refTable) continue;
           const refClassName = toPascalCase(toSingular(refTable.name));
           const propName = toCamelCase(toSingular(refTable.name));
-          const relType = conn.type === 'one-to-one' ? `"${refClassName}"` : `"${refClassName}"`;
-          out += `    ${propName}: Mapped[${relType}] = relationship(back_populates="${table.name}")\n`;
+          out += `    ${propName}: Mapped["${refClassName}"] = relationship(back_populates="${toCamelCase(toSingular(table.name))}_list")\n`;
         }
         for (const conn of outgoingConns) {
           const manyTable = tableById[conn.toTableId];
@@ -632,11 +633,12 @@
           const manyClassName = toPascalCase(toSingular(manyTable.name));
           
           if (conn.type === 'many-to-many') {
-             out += `    ${manyTable.name}: Mapped[List["${manyClassName}"]] = relationship(secondary="junction_table_name", back_populates="${table.name}")\n`;
+            const joinTableName = [table.name, manyTable.name].sort().join('_');
+            out += `    ${manyTable.name.toLowerCase()}: Mapped[List["${manyClassName}"]] = relationship(secondary="${joinTableName}", back_populates="${table.name.toLowerCase()}")\n`;
           } else if (conn.type === 'one-to-one') {
-             out += `    ${toCamelCase(toSingular(manyTable.name))}: Mapped["${manyClassName}"] = relationship(back_populates="${toCamelCase(toSingular(table.name))}")\n`;
+            out += `    ${toCamelCase(toSingular(manyTable.name))}: Mapped["${manyClassName}"] = relationship(back_populates="${toCamelCase(toSingular(table.name))}_list")\n`;
           } else {
-             out += `    ${manyTable.name}: Mapped[List["${manyClassName}"]] = relationship(back_populates="${toCamelCase(toSingular(table.name))}")\n`;
+            out += `    ${manyTable.name.toLowerCase()}: Mapped[List["${manyClassName}"]] = relationship(back_populates="${toCamelCase(toSingular(table.name))}_list")\n`;
           }
         }
 

@@ -41,7 +41,12 @@
         // Try with 's' or without 's'
         const altName1 = rc.toTableName.toLowerCase() + 's';
         const altName2 = rc.toTableName.toLowerCase().replace(/s$/, '');
-        toTable = tables.find(t => t.name.toLowerCase() === altName1 || t.name.toLowerCase() === altName2);
+        const altName3 = rc.toTableName.toLowerCase().replace(/ys$/, 'ies'); // Handle categorys -> categories
+        const altName4 = rc.toTableName.toLowerCase().replace(/ies$/, 'ys'); // Handle categories -> categorys (just in case)
+        toTable = tables.find(t => {
+          const name = t.name.toLowerCase();
+          return name === altName1 || name === altName2 || name === altName3 || name === altName4;
+        });
       }
 
       if (!fromTable || !toTable) continue;
@@ -51,23 +56,47 @@
       
       const isM2M = rc.type === 'many-to-many';
       
-      // Deduplicate connections (e.g. mutual ManyToMany)
+      // Deduplicate connections
       if (isM2M) {
          const exists = connections.find(c => 
             (c.fromTableId === toTable.id && c.toTableId === fromTable.id) ||
             (c.fromTableId === fromTable.id && c.toTableId === toTable.id)
          );
          if (exists) continue; // Already handled
+      } else {
+         const exists = connections.find(c =>
+            c.fromTableId === toTable.id && c.toTableId === fromTable.id &&
+            c.fromColumn === rc.toColumn && c.toColumn === rc.fromColumn
+         );
+         if (exists) continue;
       }
       
-      connections.push(AppState.newConnection({
-        fromTableId: toTable.id, // target
-        fromColumn: rc.toColumn || 'id',
-        toTableId: fromTable.id, // source
-        toColumn: rc.fromColumn || 'id',
-        type: rc.type || 'one-to-many',
-        label: rc.type === 'many-to-many' ? 'm:n' : (rc.type === 'one-to-one' ? '1:1' : `fk_${rc.fromColumn}`)
-      }));
+      const isOneToOne = fkCol && fkCol.uq;
+      
+      // For M2M: fromTable = the table that declares the relation (e.g. Branch)
+      //          toTable   = the target table (e.g. User)
+      // Keep them in original order (no swap) for M2M
+      // For 1:N / 1:1: swap so that fromTableId = One side (referenced), toTableId = Many side (FK holder)
+      if (isM2M) {
+        connections.push(AppState.newConnection({
+          fromTableId: fromTable.id, // source table (e.g. Branch)
+          fromColumn: 'id',
+          toTableId: toTable.id,     // target table (e.g. User)
+          toColumn: 'id',
+          type: 'many-to-many',
+          label: 'm:n'
+        }));
+      } else {
+        connections.push(AppState.newConnection({
+          fromTableId: toTable.id, // One side (referenced)
+          fromColumn: rc.toColumn || 'id',
+          toTableId: fromTable.id, // Many side (FK holder)
+          toColumn: rc.fromColumn || 'id',
+          type: isOneToOne ? 'one-to-one' : 'one-to-many',
+          label: isOneToOne ? '1:1' : `fk_${rc.fromColumn}`
+        }));
+      }
+
     }
     
     // Cleanup step: remove M2M connections if a 1:N or 1:1 connection already exists between the same tables
@@ -112,13 +141,12 @@
         const relRegex = /(\w+)\s+(\w+)(?:\[\]|\?)?\s*@relation\s*\(\s*fields:\s*\[([^\]]+)\],\s*references:\s*\[([^\]]+)\]\s*\)/g;
         let rm;
         while ((rm = relRegex.exec(body)) !== null) {
-          const isOneToOne = rm[0].includes('?');
           rawConns.push({
             fromTableName: tableName,
             fromColumn: rm[3].trim(),
             toTableName: rm[2].trim(),
             toColumn: rm[4].trim(),
-            type: isOneToOne ? 'one-to-one' : 'one-to-many'
+            type: 'one-to-many' // will be resolved to 1:1 in _resolveConnections if needed
           });
           cleanBody = cleanBody.replace(rm[0], ''); // Remove relation block from body
         }
@@ -192,7 +220,20 @@
         
         const columns = [];
         
-        const colRegex = /(\w+)(?:\s*:\s*Mapped\[[^\]]*\])?\s*=\s*(?:mapped_column|Column)\s*\(([\s\S]*?)\)(?:\s*(?:#.*)?\n|\s*$)/g;
+        // Check for M2M relationship(secondary='table')
+        const relRegex = /Mapped\[(?:List\[)?['"]?(\w+)['"]?\]?\]?\s*=\s*relationship\s*\([^)]*secondary\s*=\s*['"]([^'"]+)['"][^)]*\)/g;
+        let relMatch;
+        while ((relMatch = relRegex.exec(block)) !== null) {
+          rawConns.push({
+            fromTableName: tableName,
+            fromColumn: 'id',
+            toTableName: relMatch[1],
+            toColumn: 'id',
+            type: 'many-to-many'
+          });
+        }
+        
+        const colRegex = /(\w+)(?:\s*:\s*[^=]+)?\s*=\s*(?:mapped_column|Column)\s*\(([\s\S]*?)\)(?:\s*(?:#.*)?\n|\s*$)/g;
         let m;
         while ((m = colRegex.exec(block)) !== null) {
           const colName = m[1];
@@ -270,16 +311,36 @@
           columns.push(AppState.newColumn({ name: colName, type, pk, nn, ai, uq }));
         }
         
-        // Parse relations: @ManyToOne(() => TargetTable) @JoinColumn({ name: 'user_id' })
-        const relRegex = /@(ManyToOne|OneToOne)\s*\(\s*\(\)\s*=>\s*(\w+)[^)]*\)[\s\S]*?(?:@JoinColumn\s*\(\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\s*\))?[\s\S]*?(?:public\s+|private\s+|protected\s+)?(\w+)\s*:/g;
+        // Parse relations: @ManyToOne/@OneToOne followed by @JoinColumn
+        // Strategy: find each @JoinColumn and look backwards for the relation decorator
+        const joinColRegex2 = /@JoinColumn\s*\(\s*\{[\s\S]*?name:\s*['"]([^'"]+)['"][\s\S]*?\}\s*\)\s*\n\s*(?:public\s+|private\s+|protected\s+)?(\w+)\s*:/g;
+        const joinColResults = [];
+        let jc2;
+        while ((jc2 = joinColRegex2.exec(block)) !== null) {
+          joinColResults.push({ colName: jc2[1], propName: jc2[2], index: jc2.index });
+        }
+
+        const relRegex = /@(ManyToOne|OneToOne)\s*\(\s*\(\)\s*=>\s*(\w+)[^)]*\)/g;
         let r;
         while ((r = relRegex.exec(block)) !== null) {
           const relType = r[1];
           const targetClass = r[2];
-          const joinCol = r[3];
-          const propName = r[4];
+          const relEnd = r.index + r[0].length;
           
-          const colName = joinCol || (propName + 'Id');
+          // Find the JoinColumn that comes right after this relation decorator
+          const nextJc = joinColResults.find(jcr => jcr.index >= relEnd && jcr.index < relEnd + 200);
+          
+          let colName;
+          if (nextJc) {
+            colName = nextJc.colName;
+          } else {
+            // Fallback: find the property name after this decorator
+            const afterRel = block.substring(relEnd);
+            const propMatch = afterRel.match(/(?:@\w+[^;]*\n)*\s*(?:public\s+|private\s+|protected\s+)?(\w+)\s*:/);
+            const propName = propMatch ? propMatch[1] : 'unknown';
+            colName = propName + 'Id';
+          }
+          
           rawConns.push({
             fromTableName: tableName,
             fromColumn: colName,
@@ -337,7 +398,9 @@
         if (!bodyMatch) continue;
         const body = bodyMatch[1];
         
-        const tableName = className.toLowerCase() + 's';
+        // Try to get actual table name from TableName() function
+        const tableNameMatch = blocks[i+1].match(/TableName\(\)\s+string\s*\{[^}]*return\s+"([^"]+)"/);
+        const tableName = tableNameMatch ? tableNameMatch[1] : className.toLowerCase() + 's';
         const columns = [];
         const lines = body.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'));
 
@@ -353,17 +416,26 @@
           const parts = line.split(/\s+/);
           if (parts.length < 2) continue;
           
-          let colName = parts[0];
-          // Handle 'ID' -> 'Id' first so it becomes _id instead of _i_d
-          colName = colName.replace(/ID/g, 'Id');
-          colName = colName.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-          
-          if (colName === 'i_d') colName = 'id';
-          
+          const fieldName = parts[0];
           const rawType = parts[1];
           let type = this._typeMap[rawType] || 'VARCHAR(255)';
 
-          const tag = line.match(/`gorm:"([^"]+)"`/);
+          const tag = line.match(/gorm:"([^"]+)"/);
+          
+          // Prefer column: tag value for actual DB column name
+          let colName;
+          if (tag) {
+            const colMatch = tag[1].match(/column:([^;]+)/);
+            if (colMatch) {
+              colName = colMatch[1].trim();
+            }
+          }
+          // Fall back to snake_case conversion
+          if (!colName) {
+            colName = fieldName.replace(/ID/g, 'Id').replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+            if (colName === 'i_d') colName = 'id';
+          }
+          
           const pk = tag ? tag[1].includes('primaryKey') : colName === 'id';
           const uq = tag ? tag[1].includes('unique') : false;
           const nn = tag ? tag[1].includes('not null') : pk;
@@ -384,11 +456,46 @@
               });
               continue; // Don't add a column for a many2many field
             }
+            
+            const fkMatch = tag[1].match(/foreignKey:([^;"]+)/);
+            if (fkMatch && !m2mMatch) {
+              const fkCol = fkMatch[1].trim();
+              const isSlice = rawType.startsWith('[]');
+              const targetType = isSlice ? rawType.substring(2) : rawType.replace(/^\*/, '');
+              const targetTable = targetType.toLowerCase() + 's';
+              
+              if (isSlice) {
+                 // hasMany -> FK is on target table
+                 rawConns.push({
+                   fromTableName: targetTable,
+                   fromColumn: fkCol,
+                   toTableName: tableName,
+                   toColumn: 'id'
+                 });
+              } else {
+                 // belongsTo/hasOne -> FK is on this table
+                 rawConns.push({
+                   fromTableName: tableName,
+                   fromColumn: fkCol,
+                   toTableName: targetTable,
+                   toColumn: 'id'
+                 });
+              }
+              
+              // Skip adding actual column for relations, only primitive types get columns
+              if (isSlice || (rawType[0] === rawType[0].toUpperCase() && !['JSON', 'UUID'].includes(targetType.toUpperCase()))) {
+                 continue;
+              }
+            }
           }
           
-          // Basic FK heuristic: field ends with '_id' e.g. user_id
-          if (colName.endsWith('_id') && colName.length > 3) {
-            const targetTable = colName.substring(0, colName.length - 3) + 's';
+          // FK heuristic: column ends with 'Id' (camelCase) or '_id' (snake_case)
+          const isIdSuffix = (colName.endsWith('Id') || colName.endsWith('_id')) && colName.length > 3 && colName.toLowerCase() !== 'id';
+          if (isIdSuffix) {
+            const base = colName.endsWith('Id')
+              ? colName.slice(0, -2).toLowerCase()
+              : colName.slice(0, -3);
+            const targetTable = base + 's';
             rawConns.push({
               fromTableName: tableName,
               fromColumn: colName,
@@ -398,6 +505,7 @@
           }
 
           columns.push(AppState.newColumn({ name: colName, type, pk, nn, uq }));
+
         }
 
         if (columns.length > 0) {
@@ -506,10 +614,10 @@
       }
 
       if (!foundSchema) {
-        const classRegex = /class\s+(\w+)\s+extends\s+Model[^{]*\{([^}]*)\}/g;
-        while ((match = classRegex.exec(code)) !== null) {
-          const className = match[1];
-          const body = match[2];
+        const blocks = code.split(/class\s+(\w+)\s+extends\s+Model/);
+        for (let i = 1; i < blocks.length; i += 2) {
+          const className = blocks[i];
+          const body = blocks[i + 1];
           const tableNameMatch = body.match(/protected\s+\$table\s*=\s*['"]([^'"]+)['"]/);
           const tableName = tableNameMatch ? tableNameMatch[1] : className.toLowerCase() + 's';
           
@@ -565,6 +673,33 @@
                toColumn: 'id',
                type: 'one-to-one'
              });
+          }
+          
+          // Parse belongsTo and hasMany
+          const relRegex = /(belongsTo|hasMany)\s*\(\s*([^:]+)::class\s*(?:,\s*['"]([^'"]+)['"])?\s*(?:,\s*['"]([^'"]+)['"])?\s*\)/g;
+          let relMatch;
+          while ((relMatch = relRegex.exec(body)) !== null) {
+             const relType = relMatch[1];
+             const targetModel = relMatch[2];
+             const targetTable = targetModel.toLowerCase() + 's';
+             
+             if (relType === 'belongsTo') {
+               const fkName = relMatch[3] || targetModel.toLowerCase() + '_id';
+               rawConns.push({
+                 fromTableName: tableName,
+                 fromColumn: fkName,
+                 toTableName: targetTable,
+                 toColumn: 'id'
+               });
+             } else if (relType === 'hasMany') {
+               const fkName = relMatch[3] || className.toLowerCase() + '_id';
+               rawConns.push({
+                 fromTableName: targetTable,
+                 fromColumn: fkName,
+                 toTableName: tableName,
+                 toColumn: 'id'
+               });
+             }
           }
           
           columns.push(AppState.newColumn({ name: 'created_at', type: 'DATETIME' }));

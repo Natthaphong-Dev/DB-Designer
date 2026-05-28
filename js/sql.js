@@ -36,6 +36,7 @@
           y: 3400 + Math.floor(idx / cols) * 260
         }));
         rawConns.push(...parsed._fks.map(fk => ({
+          label: fk.label,
           fromTableName: tableName,
           fromColumn: fk.fromCol,
           toTableName: fk.toTable,
@@ -61,65 +62,66 @@
       }
 
       /* ── ALTER TABLE … ADD FOREIGN KEY ── */
-      const alterFkRegex = /ALTER\s+TABLE\s+[`"[]?(\w+)[`"\]]?\s+ADD\s+(?:CONSTRAINT\s+[`"[]?\w+[`"\]]?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"[]?(\w+)[`"\]]?\s*\(([^)]+)\)/gi;
+      const alterFkRegex = /ALTER\s+TABLE\s+[`"[]?([^`"\]\s]+)[`"\]]?\s+ADD\s+(?:CONSTRAINT\s+[`"[]?([^`"\]\s]+)[`"\]]?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"[]?([^`"\]\s]+)[`"\]]?\s*\(([^)]+)\)/gi;
       while ((m = alterFkRegex.exec(clean)) !== null) {
         rawConns.push({
+          label: m[2] ? this._stripQuotes(m[2].trim()) : null,
           fromTableName: m[1],
-          fromColumn: this._stripQuotes(m[2].trim()),
-          toTableName: m[3],
-          toColumn: this._stripQuotes(m[4].trim())
+          fromColumn: this._stripQuotes(m[3].trim()),
+          toTableName: m[4],
+          toColumn: this._stripQuotes(m[5].trim())
         });
       }
 
       /* ── Resolve FK → connection objects ── */
       const connections = [];
       const m2mTables = new Set();
-      
+
       // Pass 1: Identify Junction Tables (Many-to-Many)
       for (const t of tables) {
-         // A junction table usually has exactly 2 foreign keys and no other meaningful columns
-         const tFks = rawConns.filter(rc => rc.fromTableName.toLowerCase() === t.name.toLowerCase());
-         if (tFks.length === 2 && t.columns.length <= 3) {
-            // Check if both FKs point to different tables, or even the same (self-referencing M:N)
-            m2mTables.add(t.name);
-            connections.push(AppState.newConnection({
-               fromTableId: tables.find(x => x.name.toLowerCase() === tFks[1].toTableName.toLowerCase())?.id,
-               fromColumn: 'id',
-               toTableId: tables.find(x => x.name.toLowerCase() === tFks[0].toTableName.toLowerCase())?.id,
-               toColumn: 'id',
-               type: 'many-to-many',
-               label: 'm:n'
-            }));
-         }
+        // A junction table usually has exactly 2 foreign keys and no other meaningful columns
+        const tFks = rawConns.filter(rc => rc.fromTableName.toLowerCase() === t.name.toLowerCase());
+        if (tFks.length === 2 && t.columns.length <= 3) {
+          // Check if both FKs point to different tables, or even the same (self-referencing M:N)
+          m2mTables.add(t.name);
+          connections.push(AppState.newConnection({
+            fromTableId: tables.find(x => x.name.toLowerCase() === tFks[0].toTableName.toLowerCase())?.id,
+            fromColumn: 'id',
+            toTableId: tables.find(x => x.name.toLowerCase() === tFks[1].toTableName.toLowerCase())?.id,
+            toColumn: 'id',
+            type: 'many-to-many',
+            label: 'm:n'
+          }));
+        }
       }
-      
+
       // Remove M2M junction tables from the visual canvas
       for (const m2m of m2mTables) {
-         const idx = tables.findIndex(t => t.name === m2m);
-         if (idx !== -1) tables.splice(idx, 1);
+        const idx = tables.findIndex(t => t.name === m2m);
+        if (idx !== -1) tables.splice(idx, 1);
       }
-      
+
       // Pass 2: Regular 1:N and 1:1
       rawConns.forEach(rc => {
         if (m2mTables.has(rc.fromTableName)) return; // Skip FKs that belonged to junction tables
-        
+
         const from = tables.find(t => t.name.toLowerCase() === rc.fromTableName.toLowerCase());
-        const to   = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
+        const to = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
         if (!from || !to) return;
-        
+
         // Mark FK column
         const fkCol = from.columns.find(c => c.name === rc.fromColumn);
         if (fkCol) fkCol.fk = true;
-        
+
         const isOneToOne = fkCol && fkCol.uq;
-        
+
         connections.push(AppState.newConnection({
           fromTableId: to.id,
           fromColumn: rc.toColumn,
           toTableId: from.id,
           toColumn: rc.fromColumn,
           type: isOneToOne ? 'one-to-one' : 'one-to-many',
-          label: isOneToOne ? '1:1' : `fk_${rc.fromColumn}`
+          label: rc.label ? rc.label : (isOneToOne ? '1:1' : `fk_${rc.fromColumn}`)
         }));
       });
 
@@ -156,12 +158,13 @@
         if (/^(?:KEY|INDEX)\s/i.test(part)) continue;
 
         // FOREIGN KEY (inline or via CONSTRAINT)
-        const fkM = part.match(/(?:CONSTRAINT\s+[`"']?\w+[`"']?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"']?(\w+)[`"']?\s*\(([^)]+)\)/i);
+        const fkM = part.match(/(?:CONSTRAINT\s+[`"']?(\w+)[`"']?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"']?(\w+)[`"']?\s*\(([^)]+)\)/i);
         if (fkM) {
           fks.push({
-            fromCol: this._stripQuotes(fkM[1].trim()),
-            toTable: fkM[2],
-            toCol: this._stripQuotes(fkM[3].trim())
+            label: fkM[1] ? this._stripQuotes(fkM[1].trim()) : null,
+            fromCol: this._stripQuotes(fkM[2].trim()),
+            toTable: fkM[3],
+            toCol: this._stripQuotes(fkM[4].trim())
           });
           continue;
         }
@@ -270,7 +273,7 @@
         const classMatch = block.match(/^(\w+)(?:\([^)]*\))?:/);
         if (!classMatch) continue;
         const className = classMatch[1];
-        
+
         // Skip Meta or other non-models
         if (className === 'Meta') continue;
 
@@ -303,30 +306,45 @@
       const finalConnections = [];
       const connections = rawConns.map(rc => {
         const from = tables.find(t => t.name.toLowerCase() === rc.fromTableName.toLowerCase());
-        const to   = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
+        const to = tables.find(t => t.name.toLowerCase() === rc.toTableName.toLowerCase());
         if (!from || !to) return null;
-        
+
         const fkCol = from.columns.find(c => c.name === rc.fromColumn);
         if (fkCol) fkCol.fk = true;
-        
+
         const isM2M = rc.type === 'many-to-many';
         if (isM2M) {
-           const exists = finalConnections.find(c => 
-              (c.fromTableId === to.id && c.toTableId === from.id) ||
-              (c.fromTableId === from.id && c.toTableId === to.id)
-           );
-           if (exists) return null;
+          const exists = finalConnections.find(c =>
+            (c.fromTableId === to.id && c.toTableId === from.id) ||
+            (c.fromTableId === from.id && c.toTableId === to.id)
+          );
+          if (exists) return null;
         }
-        
-        const conn = AppState.newConnection({
-          fromTableId: to.id,
-          fromColumn: rc.toColumn || 'id',
-          toTableId: from.id,
-          toColumn: rc.fromColumn || 'id',
-          type: rc.type || 'one-to-many',
-          label: rc.type === 'many-to-many' ? 'm:n' : (rc.type === 'one-to-one' ? '1:1' : `fk_${rc.fromColumn}`)
-        });
-        
+
+        let conn;
+        if (isM2M) {
+          // M2M: keep original direction (from = table declaring the field, to = target)
+          conn = AppState.newConnection({
+            fromTableId: from.id,
+            fromColumn: 'id',
+            toTableId: to.id,
+            toColumn: 'id',
+            type: 'many-to-many',
+            label: 'm:n'
+          });
+        } else {
+          // 1:N / 1:1: swap so fromTableId=One side, toTableId=Many side (FK holder)
+          const isOneToOne = fkCol && fkCol.uq;
+          conn = AppState.newConnection({
+            fromTableId: to.id,
+            fromColumn: rc.toColumn || 'id',
+            toTableId: from.id,
+            toColumn: rc.fromColumn || 'id',
+            type: rc.type || 'one-to-many',
+            label: isOneToOne ? '1:1' : `fk_${rc.fromColumn}`
+          });
+        }
+
         finalConnections.push(conn);
         return conn;
       }).filter(Boolean);
@@ -334,14 +352,11 @@
       return { tables, connections };
     },
 
+
     _toTableName(className) {
-      // PascalCase to snake_case and basic pluralization
-      let snake = className.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`).replace(/^_/, '');
-      if (!snake.endsWith('s')) {
-        if (snake.endsWith('y')) snake = snake.slice(0, -1) + 'ies';
-        else if (!snake.endsWith('ss')) snake += 's';
-      }
-      return snake;
+      // Django model class names are already in PascalCase matching the table name
+      // We return the class name as-is since the Exporter uses table.name directly
+      return className;
     },
 
     _parseModelBody(tableName, body) {
@@ -370,7 +385,7 @@
               toClass: targetMatch[1], // The related Model name
               type: fieldType === 'ManyToManyField' ? 'many-to-many' : (fieldType === 'OneToOneField' ? 'one-to-one' : 'one-to-many')
             });
-            
+
             if (fieldType !== 'ManyToManyField') {
               const nn = !args.includes('null=True');
               columns.push(AppState.newColumn({
@@ -390,7 +405,7 @@
 
         // Regular Fields
         let colType = this._typeMap[fieldType] || 'VARCHAR(255)';
-        
+
         if (fieldType === 'CharField' || fieldType === 'EmailField') {
           const m = args.match(/max_length\s*=\s*(\d+)/);
           if (m) colType = `VARCHAR(${m[1]})`;
@@ -461,35 +476,35 @@
 
       for (const table of tables) {
         if (table.type === 'note') continue;
-        sql += this._tableSQL(table, connections, dialect, q) + '\n\n';
+        sql += this._tableSQL(table, tables, connections, dialect, q) + '\n\n';
       }
-      
+
       // Generate Junction Tables for Many-to-Many
       const m2mConns = connections.filter(c => c.type === 'many-to-many');
       const generatedJunctions = new Set();
-      
+
       for (const conn of m2mConns) {
         const ft = tables.find(t => t.id === conn.fromTableId);
         const tt = tables.find(t => t.id === conn.toTableId);
         if (!ft || !tt) continue;
-        
+
         const joinTableName = [ft.name, tt.name].sort().join('_');
         if (generatedJunctions.has(joinTableName)) continue;
         generatedJunctions.add(joinTableName);
-        
+
         const ftPk = (ft.columns.find(c => c.pk) || ft.columns[0] || {}).name || 'id';
         const ttPk = (tt.columns.find(c => c.pk) || tt.columns[0] || {}).name || 'id';
-        
+
         const ftFk = ft.name.toLowerCase() + '_id';
         const ttFk = tt.name.toLowerCase() + '_id';
-        
+
         const fkType = 'INT'; // Standard fallback
-        
+
         sql += `CREATE TABLE ${q}${joinTableName}${q} (\n`;
         sql += `  ${q}${ftFk}${q} ${fkType} NOT NULL,\n`;
         sql += `  ${q}${ttFk}${q} ${fkType} NOT NULL,\n`;
         sql += `  PRIMARY KEY (${q}${ftFk}${q}, ${q}${ttFk}${q})`;
-        
+
         if (dialect === 'postgresql' || dialect === 'sqlite') {
           sql += `,\n  CONSTRAINT "fk_${joinTableName}_${ft.name}" FOREIGN KEY ("${ftFk}") REFERENCES "${ft.name}" ("${ftPk}"),\n`;
           sql += `  CONSTRAINT "fk_${joinTableName}_${tt.name}" FOREIGN KEY ("${ttFk}") REFERENCES "${tt.name}" ("${ttPk}")\n`;
@@ -497,7 +512,7 @@
           sql += `\n`;
         }
         sql += `);\n\n`;
-        
+
         if (dialect === 'mysql') {
           sql += `ALTER TABLE \`${joinTableName}\`\n`;
           sql += `  ADD CONSTRAINT \`fk_${joinTableName}_${ft.name}\` FOREIGN KEY (\`${ftFk}\`) REFERENCES \`${ft.name}\` (\`${ftPk}\`);\n\n`;
@@ -515,12 +530,12 @@
           if (!ft || !tt) continue;
           if (ft.type === 'note' || tt.type === 'note') continue;
           const label = conn.label || `fk_${tt.name}_${conn.toColumn || 'ref'}`;
-          
+
           // toCol is the FK column in the Many table
           const fkColName = conn.toColumn || (tt.columns[0] && tt.columns[0].name) || 'id';
           // fromCol is the PK column in the One table
           const refColName = conn.fromColumn || (ft.columns.find(c => c.pk) || ft.columns[0] || {}).name || 'id';
-          
+
           sql += `ALTER TABLE \`${tt.name}\`\n`;
           sql += `  ADD CONSTRAINT \`${label}\`\n`;
           sql += `  FOREIGN KEY (\`${fkColName}\`)\n`;
@@ -532,7 +547,7 @@
       return sql.trim();
     },
 
-    _tableSQL(table, connections, dialect, q) {
+    _tableSQL(table, tables, connections, dialect, q) {
       const lines = [];
 
       for (const col of table.columns) {
@@ -566,7 +581,7 @@
         for (const conn of standardConns) {
           // In Postgres/SQLite, we want to add the inline FK to the table that HOLDS the FK (the Many side, toTable)
           if (conn.toTableId !== table.id) continue;
-          const ft = AppState.tables.find(t => t.id === conn.fromTableId); // The One side (referenced)
+          const ft = tables.find(t => t.id === conn.fromTableId); // The One side (referenced) — FIX: use tables param not AppState.tables
           if (!ft) continue;
           const label = conn.label || `fk_${table.name}_${conn.toColumn}`;
           const fkColName = conn.toColumn || '';
@@ -590,32 +605,32 @@
 
     /* ── SQL Type → Django Field Mapping ── */
     _fieldMap: {
-      'INT':        { field: 'IntegerField',      args: {} },
-      'INTEGER':    { field: 'IntegerField',      args: {} },
-      'BIGINT':     { field: 'BigIntegerField',   args: {} },
-      'SMALLINT':   { field: 'SmallIntegerField', args: {} },
-      'TINYINT':    { field: 'SmallIntegerField', args: {} },
-      'FLOAT':      { field: 'FloatField',        args: {} },
-      'DOUBLE':     { field: 'FloatField',        args: {} },
-      'DECIMAL':    { field: 'DecimalField',      args: { max_digits: 10, decimal_places: 2 } },
-      'VARCHAR':    { field: 'CharField',         args: { max_length: 255 } },
-      'CHAR':       { field: 'CharField',         args: { max_length: 255 } },
-      'TEXT':       { field: 'TextField',         args: {} },
-      'LONGTEXT':   { field: 'TextField',         args: {} },
-      'MEDIUMTEXT': { field: 'TextField',         args: {} },
-      'BOOLEAN':    { field: 'BooleanField',      args: { default: 'False' } },
-      'BOOL':       { field: 'BooleanField',      args: { default: 'False' } },
-      'DATE':       { field: 'DateField',         args: {} },
-      'DATETIME':   { field: 'DateTimeField',     args: {} },
-      'TIMESTAMP':  { field: 'DateTimeField',     args: {} },
-      'TIME':       { field: 'TimeField',         args: {} },
-      'JSON':       { field: 'JSONField',         args: {} },
-      'JSONB':      { field: 'JSONField',         args: {} },
-      'BLOB':       { field: 'BinaryField',       args: {} },
-      'UUID':       { field: 'UUIDField',         args: {} },
-      'EMAIL':      { field: 'EmailField',        args: {} },
-      'SERIAL':     { field: 'AutoField',         args: {} },
-      'BIGSERIAL':  { field: 'BigAutoField',      args: {} },
+      'INT': { field: 'IntegerField', args: {} },
+      'INTEGER': { field: 'IntegerField', args: {} },
+      'BIGINT': { field: 'BigIntegerField', args: {} },
+      'SMALLINT': { field: 'SmallIntegerField', args: {} },
+      'TINYINT': { field: 'SmallIntegerField', args: {} },
+      'FLOAT': { field: 'FloatField', args: {} },
+      'DOUBLE': { field: 'FloatField', args: {} },
+      'DECIMAL': { field: 'DecimalField', args: { max_digits: 10, decimal_places: 2 } },
+      'VARCHAR': { field: 'CharField', args: { max_length: 255 } },
+      'CHAR': { field: 'CharField', args: { max_length: 255 } },
+      'TEXT': { field: 'TextField', args: {} },
+      'LONGTEXT': { field: 'TextField', args: {} },
+      'MEDIUMTEXT': { field: 'TextField', args: {} },
+      'BOOLEAN': { field: 'BooleanField', args: { default: 'False' } },
+      'BOOL': { field: 'BooleanField', args: { default: 'False' } },
+      'DATE': { field: 'DateField', args: {} },
+      'DATETIME': { field: 'DateTimeField', args: {} },
+      'TIMESTAMP': { field: 'DateTimeField', args: {} },
+      'TIME': { field: 'TimeField', args: {} },
+      'JSON': { field: 'JSONField', args: {} },
+      'JSONB': { field: 'JSONField', args: {} },
+      'BLOB': { field: 'BinaryField', args: {} },
+      'UUID': { field: 'UUIDField', args: {} },
+      'EMAIL': { field: 'EmailField', args: {} },
+      'SERIAL': { field: 'AutoField', args: {} },
+      'BIGSERIAL': { field: 'BigAutoField', args: {} },
     },
 
     /* ── Main Export Function ── */
@@ -681,7 +696,7 @@
       // ── Find FK connections TO this table (this table holds the FK column) ──
       const fkConns = connections.filter(c => c.toTableId === table.id && c.type !== 'many-to-many');
       const fkColNames = new Set(fkConns.map(c => c.toColumn).filter(Boolean));
-      
+
       const m2mConns = connections.filter(c => c.fromTableId === table.id && c.type === 'many-to-many');
 
       // ── Fields ──
@@ -702,7 +717,7 @@
 
               // Determine on_delete
               const onDelete = col.nn ? 'models.CASCADE' : 'models.SET_NULL';
-              
+
               const fieldType = fkConn.type === 'one-to-one' ? 'OneToOneField' : 'ForeignKey';
 
               code += `${indent}${col.name} = models.${fieldType}(\n`;
@@ -724,7 +739,7 @@
         code += `${indent}${this._fieldLine(col)}`;
         hasFields = true;
       }
-      
+
       // ── ManyToMany Fields ──
       for (const m2m of m2mConns) {
         const refTable = allTables.find(t => t.id === m2m.toTableId);
@@ -732,7 +747,7 @@
           const refClassName = classNameMap[refTable.name];
           const relatedName = this._toRelatedName(table.name);
           const fieldName = refTable.name.toLowerCase();
-          
+
           code += `${indent}${fieldName} = models.ManyToManyField(\n`;
           code += `${indent}${indent}${refClassName},\n`;
           code += `${indent}${indent}related_name='${relatedName}s',\n`;
@@ -859,7 +874,7 @@
       const parts = [];
       // Define argument order
       const order = ['max_length', 'max_digits', 'decimal_places', 'primary_key', 'unique', 'null', 'blank', 'default'];
-      
+
       for (const key of order) {
         if (args[key] !== undefined) {
           const val = args[key];
@@ -873,7 +888,7 @@
           }
         }
       }
-      
+
       // Any remaining args not in order
       for (const [key, val] of Object.entries(args)) {
         if (!order.includes(key)) {
@@ -891,15 +906,15 @@
     /* ── Find the best field for __str__ ── */
     _findStrField(table) {
       const nameFields = ['name', 'title', 'username', 'user_name', 'full_name',
-                          'email', 'code', 'label', 'description'];
-      
+        'email', 'code', 'label', 'description'];
+
       // Check for common name patterns
       for (const col of table.columns) {
         const lower = col.name.toLowerCase();
         if (nameFields.includes(lower)) return col.name;
         if (lower.endsWith('_name') || lower.endsWith('_title')) return col.name;
       }
-      
+
       // Check for any CharField/TextField that's not a FK
       for (const col of table.columns) {
         const baseType = (col.type || '').replace(/\(.*\)/, '').toUpperCase();
